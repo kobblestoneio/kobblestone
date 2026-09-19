@@ -9,7 +9,7 @@
     <KustomizeDir>$(MSBuildProjectDirectory)/../../kustomize</KustomizeDir>
     <KubeOpsConfigOut>$(KustomizeDir)/generated</KubeOpsConfigOut>
     <GenerateOperatorResources>true</GenerateOperatorResources>
-    <ManifestOutDir>$(MSBuildProjectDirectory)/../../manifests</ManifestOutDir>
+    <ManifestOutDir>$(MSBuildProjectDirectory)/../../</ManifestOutDir>
     <ManifestOutFile>$(ManifestOutDir)/kobblestone.yaml</ManifestOutFile>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
   </PropertyGroup>

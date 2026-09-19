@@ -26,8 +26,8 @@
     <File Path="../Dockerfile" />
     <File Path="../dotnet-tools.json" />
     <File Path="../global.json" />
+    <File Path="../kobblestone.yaml" />
     <File Path="../LICENSE" />
-    <File Path="../manifests/kobblestone.yaml" />
     <File Path="../README.md" />
   </Folder>
   <Project Path="Kobblestone.Operator/Kobblestone.Operator.csproj" />
