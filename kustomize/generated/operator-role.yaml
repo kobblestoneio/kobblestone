@@ -1,0 +1,473 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: operator-role
+rules:
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - get
+  - list
+  - create
+  - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - create
+  - update
+  - delete
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - pods
+  verbs:
+  - list
+  - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - pods
+  - pods/status
+  verbs:
+  - get
+  - watch
+  - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - secrets
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - secrets
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - secrets
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - secrets
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - serviceaccounts
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - services
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - services
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - services
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - services
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - services
+  verbs:
+  - watch
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - services
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - apps
+  nonResourceURLs: []
+  resources:
+  - deployments
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - apps
+  nonResourceURLs: []
+  resources:
+  - deployments
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - apps
+  nonResourceURLs: []
+  resources:
+  - deployments
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - apps
+  nonResourceURLs: []
+  resources:
+  - statefulsets
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - apps
+  nonResourceURLs: []
+  resources:
+  - statefulsets
+  verbs:
+  - watch
+- apiGroups:
+  - batch
+  nonResourceURLs: []
+  resources:
+  - jobs
+  verbs:
+  - get
+  - create
+  - update
+  - delete
+- apiGroups:
+  - batch
+  nonResourceURLs: []
+  resources:
+  - jobs
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - batch
+  nonResourceURLs: []
+  resources:
+  - jobs
+  verbs:
+  - watch
+- apiGroups:
+  - batch
+  nonResourceURLs: []
+  resources:
+  - jobs
+  verbs:
+  - create
+- apiGroups:
+  - batch
+  nonResourceURLs: []
+  resources:
+  - jobs
+  verbs:
+  - watch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - gateway.networking.k8s.io
+  nonResourceURLs: []
+  resources:
+  - httproutes
+  verbs:
+  - get
+  - create
+  - update
+  - delete
+- apiGroups:
+  - gateway.networking.k8s.io
+  nonResourceURLs: []
+  resources:
+  - tcproutes
+  verbs:
+  - get
+  - create
+  - update
+  - delete
+- apiGroups:
+  - gateway.networking.k8s.io
+  nonResourceURLs: []
+  resources:
+  - tcproutes
+  verbs:
+  - get
+  - create
+  - update
+  - delete
+- apiGroups:
+  - gateway.networking.k8s.io
+  nonResourceURLs: []
+  resources:
+  - tcproutes
+  verbs:
+  - get
+  - create
+  - update
+  - delete
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - accounts
+  - backuprepos
+  - backups
+  - botbehaviors
+  - bots
+  - commandgroups
+  - networks
+  - restores
+  - routers
+  verbs:
+  - get
+  - watch
+  - update
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - accounts/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - backuprepos/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - backups/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - botbehaviors/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - bots/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - commandgroups/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - commands
+  verbs:
+  - get
+  - watch
+  - create
+  - update
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - commands/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - networks/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - restores/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - routers/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - routes
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - delete
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - routes/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - servers
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - servers/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - networking.k8s.io
+  nonResourceURLs: []
+  resources:
+  - networkpolicies
+  verbs:
+  - get
+  - create
+  - update
+  - delete
+- apiGroups:
+  - rbac.authorization.k8s.io
+  nonResourceURLs: []
+  resources:
+  - rolebindings
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - rbac.authorization.k8s.io
+  nonResourceURLs: []
+  resources:
+  - roles
+  verbs:
+  - get
+  - create
+  - update

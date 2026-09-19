@@ -1,0 +1,13 @@
+apiVersion: kobblestone.io/v1alpha1
+kind: Router
+metadata:
+  name: my-router
+spec:
+  replicas: 1
+  hostnames:
+    - "*"
+  service:
+    type: LoadBalancer
+  networking:
+    proxyProtocol:
+      receive: true

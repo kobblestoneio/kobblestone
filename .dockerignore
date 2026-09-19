@@ -1,0 +1,43 @@
+# --- VCS / editor / OS cruft ---
+.git
+.gitignore
+.gitattributes
+.vs
+.vscode
+.idea
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# --- .NET build output (rebuilt fresh inside the image) ---
+**/bin/
+**/obj/
+**/out/
+**/publish/
+*.dll
+*.pdb
+
+# --- Test / coverage ---
+**/TestResults/
+**/*.trx
+**/coverage*/
+
+# --- Docker itself ---
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# --- Generated K8s manifests (not needed to build the image) ---
+kustomize/
+kustomize-overlay/
+manifests/
+
+# --- Misc project noise ---
+**/*.log
+**/node_modules/
+README.md
+docs/
+
+**/bot-runner/
+**/account-auth/

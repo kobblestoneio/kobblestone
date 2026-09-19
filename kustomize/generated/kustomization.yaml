@@ -1,0 +1,29 @@
+namespace: kobblestone-system
+namePrefix: kobblestone-
+labels:
+- includeSelectors: true
+  pairs:
+    operator: kobblestone
+resources:
+- operator-role.yaml
+- operator-role-binding.yaml
+- deployment.yaml
+- accounts_kobblestone_io.yaml
+- backups_kobblestone_io.yaml
+- backuprepos_kobblestone_io.yaml
+- bots_kobblestone_io.yaml
+- botbehaviors_kobblestone_io.yaml
+- commands_kobblestone_io.yaml
+- commandgroups_kobblestone_io.yaml
+- networks_kobblestone_io.yaml
+- restores_kobblestone_io.yaml
+- routes_kobblestone_io.yaml
+- routers_kobblestone_io.yaml
+- servers_kobblestone_io.yaml
+- namespace.yaml
+images:
+- name: operator
+  newName: ghcr.io/kobblestoneio/kobblestone
+  newTag: 0.1.0
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization

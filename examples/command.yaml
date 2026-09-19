@@ -1,0 +1,10 @@
+apiVersion: kobblestone.io/v1alpha1
+kind: Command
+metadata:
+  name: test-command
+  namespace: minecraft
+spec:
+  targetRef:
+    name: test-server
+  command: say forward
+  trafficPolicy: External

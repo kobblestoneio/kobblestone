@@ -1,0 +1,554 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: accounts.kobblestone.io
+spec:
+  conversion:
+    strategy: None
+  group: kobblestone.io
+  names:
+    kind: Account
+    listKind: AccountList
+    plural: accounts
+    singular: account
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: |-
+        Current phase of the `Account`.
+
+        Values:
+        - `Unauthorized`: The `Account` is not authorized and is currently not awaiting authorization.
+        - `AwaitingAuthorization`: The `Account` awaits manual authorization via the device flow.
+        - `Authorized`: The `Account` was successfully authorized and is considered ready.
+      jsonPath: .status.phase
+      name: Status
+      priority: 0
+      type: string
+    - description: Message explaining the current state of the `Account`.
+      jsonPath: .status.message
+      name: Message
+      priority: 0
+      type: string
+    - description: Name of the user.
+      jsonPath: .status.profile.name
+      name: Username
+      priority: 0
+      type: string
+    - description: UUID of the user.
+      jsonPath: .status.profile.uuid
+      name: UUID
+      priority: 0
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: "`Account` represents a Microsoft that can be used to authenticate against online Minecraft servers.\r\nThey can be referenced by `Bot`s to connect to online servers.\r\n\r\nOnce an `Account` is created, an authorization flow (OAuth device flow) is initiated.\r\nThe field `status.deviceFlow` will contain all necessary information for users to complete the authorization.\r\n\r\nOnce authorization is completed, the `Account` will store access and refresh tokens securely within a managed `Secret`. \r\n\r\n`Account`s automatically refresh their session before it expires for as long as the authorization state is valid. "
+        properties:
+          spec:
+            properties:
+              authorization:
+                description: Configurations related to the authorization flows.
+                nullable: true
+                properties:
+                  pod:
+                    description: Configures the managed `Pod` resource that is spawned for authorization flows.
+                    nullable: true
+                    properties:
+                      affinity:
+                        externalDocs:
+                          url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Affinity
+                        nullable: true
+                        properties:
+                          nodeAffinity:
+                            properties:
+                              preferredDuringSchedulingIgnoredDuringExecution:
+                                items:
+                                  properties:
+                                    preference:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchFields:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                      type: object
+                                    weight:
+                                      format: int32
+                                      type: integer
+                                  type: object
+                                type: array
+                              requiredDuringSchedulingIgnoredDuringExecution:
+                                properties:
+                                  nodeSelectorTerms:
+                                    items:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchFields:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                      type: object
+                                    type: array
+                                type: object
+                            type: object
+                          podAffinity:
+                            properties:
+                              preferredDuringSchedulingIgnoredDuringExecution:
+                                items:
+                                  properties:
+                                    podAffinityTerm:
+                                      properties:
+                                        labelSelector:
+                                          properties:
+                                            matchExpressions:
+                                              items:
+                                                properties:
+                                                  key:
+                                                    type: string
+                                                  operator:
+                                                    type: string
+                                                  values:
+                                                    items:
+                                                      type: string
+                                                    type: array
+                                                type: object
+                                              type: array
+                                            matchLabels:
+                                              additionalProperties:
+                                                type: string
+                                              type: object
+                                          type: object
+                                        matchLabelKeys:
+                                          items:
+                                            type: string
+                                          type: array
+                                        mismatchLabelKeys:
+                                          items:
+                                            type: string
+                                          type: array
+                                        namespaceSelector:
+                                          properties:
+                                            matchExpressions:
+                                              items:
+                                                properties:
+                                                  key:
+                                                    type: string
+                                                  operator:
+                                                    type: string
+                                                  values:
+                                                    items:
+                                                      type: string
+                                                    type: array
+                                                type: object
+                                              type: array
+                                            matchLabels:
+                                              additionalProperties:
+                                                type: string
+                                              type: object
+                                          type: object
+                                        namespaces:
+                                          items:
+                                            type: string
+                                          type: array
+                                        topologyKey:
+                                          type: string
+                                      type: object
+                                    weight:
+                                      format: int32
+                                      type: integer
+                                  type: object
+                                type: array
+                              requiredDuringSchedulingIgnoredDuringExecution:
+                                items:
+                                  properties:
+                                    labelSelector:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                      type: object
+                                    matchLabelKeys:
+                                      items:
+                                        type: string
+                                      type: array
+                                    mismatchLabelKeys:
+                                      items:
+                                        type: string
+                                      type: array
+                                    namespaceSelector:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                      type: object
+                                    namespaces:
+                                      items:
+                                        type: string
+                                      type: array
+                                    topologyKey:
+                                      type: string
+                                  type: object
+                                type: array
+                            type: object
+                          podAntiAffinity:
+                            properties:
+                              preferredDuringSchedulingIgnoredDuringExecution:
+                                items:
+                                  properties:
+                                    podAffinityTerm:
+                                      properties:
+                                        labelSelector:
+                                          properties:
+                                            matchExpressions:
+                                              items:
+                                                properties:
+                                                  key:
+                                                    type: string
+                                                  operator:
+                                                    type: string
+                                                  values:
+                                                    items:
+                                                      type: string
+                                                    type: array
+                                                type: object
+                                              type: array
+                                            matchLabels:
+                                              additionalProperties:
+                                                type: string
+                                              type: object
+                                          type: object
+                                        matchLabelKeys:
+                                          items:
+                                            type: string
+                                          type: array
+                                        mismatchLabelKeys:
+                                          items:
+                                            type: string
+                                          type: array
+                                        namespaceSelector:
+                                          properties:
+                                            matchExpressions:
+                                              items:
+                                                properties:
+                                                  key:
+                                                    type: string
+                                                  operator:
+                                                    type: string
+                                                  values:
+                                                    items:
+                                                      type: string
+                                                    type: array
+                                                type: object
+                                              type: array
+                                            matchLabels:
+                                              additionalProperties:
+                                                type: string
+                                              type: object
+                                          type: object
+                                        namespaces:
+                                          items:
+                                            type: string
+                                          type: array
+                                        topologyKey:
+                                          type: string
+                                      type: object
+                                    weight:
+                                      format: int32
+                                      type: integer
+                                  type: object
+                                type: array
+                              requiredDuringSchedulingIgnoredDuringExecution:
+                                items:
+                                  properties:
+                                    labelSelector:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                      type: object
+                                    matchLabelKeys:
+                                      items:
+                                        type: string
+                                      type: array
+                                    mismatchLabelKeys:
+                                      items:
+                                        type: string
+                                      type: array
+                                    namespaceSelector:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                      type: object
+                                    namespaces:
+                                      items:
+                                        type: string
+                                      type: array
+                                    topologyKey:
+                                      type: string
+                                  type: object
+                                type: array
+                            type: object
+                        type: object
+                      image:
+                        externalDocs:
+                          url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
+                        nullable: true
+                        type: string
+                      imagePullPolicy:
+                        externalDocs:
+                          url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
+                        nullable: true
+                        type: string
+                      nodeName:
+                        externalDocs:
+                          url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                        nullable: true
+                        type: string
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        externalDocs:
+                          url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                        nullable: true
+                        type: object
+                      tolerations:
+                        externalDocs:
+                          url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                        items:
+                          properties:
+                            effect:
+                              type: string
+                            key:
+                              type: string
+                            operator:
+                              type: string
+                            tolerationSeconds:
+                              format: int64
+                              nullable: true
+                              type: integer
+                            value:
+                              type: string
+                          type: object
+                        nullable: true
+                        type: array
+                    type: object
+                type: object
+              inactive:
+                description: |-
+                  Whether this account is considered inactive and will not attempt any authorization.
+
+                  Inactive accounts will permanently stay in phase `Unauthorized`.
+
+                  Default is `false`.
+                nullable: true
+                type: boolean
+              refreshBeforeExpiryMinutes:
+                description: |-
+                  Configures the max. leftover TTL of sessions in minutes before they are refreshed.
+
+                  Default is `60` (1 hour).
+                exclusiveMinimum: false
+                format: int32
+                minimum: 5.0
+                nullable: true
+                type: integer
+            type: object
+          status:
+            properties:
+              authorizedAt:
+                description: Timestamp when this `Account` was last authorized and a session was created.
+                format: date-time
+                nullable: true
+                type: string
+              conditions:
+                description: Conditions of the `Account`.
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      nullable: true
+                      type: integer
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  type: object
+                type: array
+              deviceFlow:
+                description: |-
+                  Contains information for completing the device flow authorization.
+
+                  Only set when `status.phase` is `AwaitingAuthorization`.
+                nullable: true
+                properties:
+                  expiresAt:
+                    description: Timestamp when the code expires.
+                    format: date-time
+                    nullable: true
+                    type: string
+                  message:
+                    description: Message that can be shown to the human from whom action is required.
+                    nullable: true
+                    type: string
+                  userCode:
+                    description: Code with which the flow may be authorized.
+                    type: string
+                  verificationUri:
+                    description: URI where verification may take place.
+                    format: uri
+                    type: string
+                required:
+                - userCode
+                - verificationUri
+                type: object
+              message:
+                description: Message explaining the current state of the `Account`.
+                nullable: true
+                type: string
+              phase:
+                description: |-
+                  Current phase of the `Account`.
+
+                  Values:
+                  - `Unauthorized`: The `Account` is not authorized and is currently not awaiting authorization.
+                  - `AwaitingAuthorization`: The `Account` awaits manual authorization via the device flow.
+                  - `Authorized`: The `Account` was successfully authorized and is considered ready.
+                enum:
+                - Unauthorized
+                - AwaitingAuthorization
+                - Authorized
+                type: string
+              profile:
+                description: |-
+                  Contains user profile information.
+
+                  Only set when `status.phase` is `Authorized`.
+                nullable: true
+                properties:
+                  name:
+                    description: Name of the user.
+                    nullable: true
+                    type: string
+                  uuid:
+                    description: UUID of the user.
+                    nullable: true
+                    type: string
+                type: object
+              sessionExpiresAt:
+                description: Timestamp when the current session expires.
+                format: date-time
+                nullable: true
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

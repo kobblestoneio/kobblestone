@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <OperatorName>kobblestone</OperatorName>
+    <DockerImage>ghcr.io/kobblestoneio/kobblestone</DockerImage>
+    <DockerImageTag>0.1.0</DockerImageTag>
+    <KustomizeDir>$(MSBuildProjectDirectory)/../../kustomize</KustomizeDir>
+    <KubeOpsConfigOut>$(KustomizeDir)/generated</KubeOpsConfigOut>
+    <GenerateOperatorResources>true</GenerateOperatorResources>
+    <ManifestOutDir>$(MSBuildProjectDirectory)/../../manifests</ManifestOutDir>
+    <ManifestOutFile>$(ManifestOutDir)/kobblestone.yaml</ManifestOutFile>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CoreRCON"/>
+    <PackageReference Include="KubeOps.Generator">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="KubeOps.Operator"/>
+    <PackageReference Include="KubernetesCRDModelGen.Models.gateway.networking.k8s.io"/>
+    <PackageReference Include="Tomlyn"/>
+  </ItemGroup>
+
+  <!-- Flatten the generated kustomize directory into a single, applyable manifest -->
+  <Target Name="PackageManifest" AfterTargets="Build" Condition="'$(GenerateOperatorResources)' == 'true'">
+    <MakeDir Directories="$(ManifestOutDir)" Condition="!Exists('$(ManifestOutDir)')"/>
+    <Exec Command="kubectl kustomize &quot;$(KustomizeDir)&quot; &gt; &quot;$(ManifestOutFile)&quot;"/>
+    <Message Importance="high" Text="Packaged operator manifest: $(ManifestOutFile)"/>
+  </Target>
+
+</Project>

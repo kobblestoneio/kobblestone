@@ -1,0 +1,9 @@
+﻿{
+  "name": "account-auth",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "dependencies": {
+    "prismarine-auth": "3.1.1"
+  }
+}

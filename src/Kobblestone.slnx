@@ -1,0 +1,34 @@
+<Solution>
+  <Folder Name="/Examples/">
+    <File Path="../examples/account.yaml" />
+    <File Path="../examples/backup.yaml" />
+    <File Path="../examples/backuprepo.yaml" />
+    <File Path="../examples/bot.yaml" />
+    <File Path="../examples/botbehavior.yaml" />
+    <File Path="../examples/command.yaml" />
+    <File Path="../examples/commandgroup.yaml" />
+    <File Path="../examples/network.yaml" />
+    <File Path="../examples/restore.yaml" />
+    <File Path="../examples/router.yaml" />
+    <File Path="../examples/server.yaml" />
+  </Folder>
+  <Folder Name="/Kustomize/">
+    <File Path="../kustomize/deployment.yaml" />
+    <File Path="../kustomize/kustomization.yaml" />
+    <File Path="../kustomize/service.yaml" />
+  </Folder>
+  <Folder Name="/Misc/">
+    <File Path="../.dockerignore" />
+    <File Path="../.editorconfig" />
+    <File Path="../.gitignore" />
+    <File Path="../Directory.Build.props" />
+    <File Path="../Directory.Packages.props" />
+    <File Path="../Dockerfile" />
+    <File Path="../dotnet-tools.json" />
+    <File Path="../global.json" />
+    <File Path="../LICENSE" />
+    <File Path="../manifests/kobblestone.yaml" />
+    <File Path="../README.md" />
+  </Folder>
+  <Project Path="Kobblestone.Operator/Kobblestone.Operator.csproj" />
+</Solution>

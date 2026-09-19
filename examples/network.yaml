@@ -1,0 +1,23 @@
+apiVersion: kobblestone.io/v1alpha1
+kind: Network
+metadata:
+  name: test-network
+  namespace: minecraft
+spec:
+  servers:
+    - name: test
+      targetRef:
+        name: test-server
+      hostname: server.example.com
+  proxy:
+    content:
+      iconUrl: https://img.icons8.com/?size=100&id=16456&format=png&color=000000
+    config: |
+      motd = "Welcome!"
+      player-info-forwarding-mode = "modern"
+      [advanced]
+      haproxy-protocol = true
+  route:
+    parentRef:
+      name: test-router
+    hostname: server.example.com

@@ -1,0 +1,17 @@
+apiVersion: kobblestone.io/v1alpha1
+kind: Server
+metadata:
+  name: my-server
+spec:
+  eula: true
+  type: Vanilla
+  version: "26.2"
+  storage:
+    size: 1Gi
+  resources:
+    limits:
+      memory: 2Gi
+  jvm:
+    memory:
+      # You may want to decrease this for lower memory limits
+      heapPercentage: 75

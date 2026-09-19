@@ -1,0 +1,738 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: bots.kobblestone.io
+spec:
+  conversion:
+    strategy: None
+  group: kobblestone.io
+  names:
+    kind: Bot
+    listKind: BotList
+    plural: bots
+    singular: bot
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.auth.accountRef.name
+      name: Account
+      priority: 0
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          A `Bot` represents a single instance of a Minecraft bot.
+
+          If the `Bot` should connect to an online server, it needs to reference an authorized `Account` (which is allowed to access the server).
+
+          The logic of `Bot`s is programmed by the `BotBehavior`s they are referencing (`behaviors`).
+        properties:
+          spec:
+            properties:
+              auth:
+                description: |-
+                  Configures authentication for online servers.
+
+                  If not specified, the `Bot` can only connect to offline servers.
+                nullable: true
+                properties:
+                  accountRef:
+                    description: |-
+                      Reference to an `Account` object this `Bot` will use for authentication.
+
+                      **Note**: The `Account` has to be authorized (`status.phase=Authorized`), otherwise the server connection will fail.
+                    properties:
+                      name:
+                        type: string
+                    type: object
+                  enableChatSigning:
+                    description: |-
+                      If enabled, profile certificates from the referenced `Account` will be used to sign chat messages.
+
+                      Default is `false`.
+                    nullable: true
+                    type: boolean
+                required:
+                - accountRef
+                title: Authentication
+                type: object
+              behaviors:
+                description: Behaviors that should apply to this `Bot`.
+                items:
+                  properties:
+                    behaviorRef:
+                      description: Reference to the `BotBehavior` object.
+                      properties:
+                        name:
+                          type: string
+                      type: object
+                    parameters:
+                      additionalProperties:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                      description: Parameters forwarded to the `BotBehavior`.
+                      nullable: true
+                      type: object
+                  required:
+                  - behaviorRef
+                  type: object
+                nullable: true
+                title: Behavior
+                type: array
+              inactive:
+                description: |-
+                  Whether the `Bot` should be inactive (not running).
+
+                  Default is `false`.
+                nullable: true
+                type: boolean
+              offlineUsername:
+                description: |-
+                  Username of the `Bot` when connecting without authentication (offline).
+
+                  Default is `Player`.
+                nullable: true
+                type: string
+              pod:
+                description: Configures the spec of the managed `Pod` object.
+                nullable: true
+                properties:
+                  affinity:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Affinity
+                    nullable: true
+                    properties:
+                      nodeAffinity:
+                        properties:
+                          preferredDuringSchedulingIgnoredDuringExecution:
+                            items:
+                              properties:
+                                preference:
+                                  properties:
+                                    matchExpressions:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                    matchFields:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                  type: object
+                                weight:
+                                  format: int32
+                                  type: integer
+                              type: object
+                            type: array
+                          requiredDuringSchedulingIgnoredDuringExecution:
+                            properties:
+                              nodeSelectorTerms:
+                                items:
+                                  properties:
+                                    matchExpressions:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                    matchFields:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                  type: object
+                                type: array
+                            type: object
+                        type: object
+                      podAffinity:
+                        properties:
+                          preferredDuringSchedulingIgnoredDuringExecution:
+                            items:
+                              properties:
+                                podAffinityTerm:
+                                  properties:
+                                    labelSelector:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                      type: object
+                                    matchLabelKeys:
+                                      items:
+                                        type: string
+                                      type: array
+                                    mismatchLabelKeys:
+                                      items:
+                                        type: string
+                                      type: array
+                                    namespaceSelector:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                      type: object
+                                    namespaces:
+                                      items:
+                                        type: string
+                                      type: array
+                                    topologyKey:
+                                      type: string
+                                  type: object
+                                weight:
+                                  format: int32
+                                  type: integer
+                              type: object
+                            type: array
+                          requiredDuringSchedulingIgnoredDuringExecution:
+                            items:
+                              properties:
+                                labelSelector:
+                                  properties:
+                                    matchExpressions:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                    matchLabels:
+                                      additionalProperties:
+                                        type: string
+                                      type: object
+                                  type: object
+                                matchLabelKeys:
+                                  items:
+                                    type: string
+                                  type: array
+                                mismatchLabelKeys:
+                                  items:
+                                    type: string
+                                  type: array
+                                namespaceSelector:
+                                  properties:
+                                    matchExpressions:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                    matchLabels:
+                                      additionalProperties:
+                                        type: string
+                                      type: object
+                                  type: object
+                                namespaces:
+                                  items:
+                                    type: string
+                                  type: array
+                                topologyKey:
+                                  type: string
+                              type: object
+                            type: array
+                        type: object
+                      podAntiAffinity:
+                        properties:
+                          preferredDuringSchedulingIgnoredDuringExecution:
+                            items:
+                              properties:
+                                podAffinityTerm:
+                                  properties:
+                                    labelSelector:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                      type: object
+                                    matchLabelKeys:
+                                      items:
+                                        type: string
+                                      type: array
+                                    mismatchLabelKeys:
+                                      items:
+                                        type: string
+                                      type: array
+                                    namespaceSelector:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                      type: object
+                                    namespaces:
+                                      items:
+                                        type: string
+                                      type: array
+                                    topologyKey:
+                                      type: string
+                                  type: object
+                                weight:
+                                  format: int32
+                                  type: integer
+                              type: object
+                            type: array
+                          requiredDuringSchedulingIgnoredDuringExecution:
+                            items:
+                              properties:
+                                labelSelector:
+                                  properties:
+                                    matchExpressions:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                    matchLabels:
+                                      additionalProperties:
+                                        type: string
+                                      type: object
+                                  type: object
+                                matchLabelKeys:
+                                  items:
+                                    type: string
+                                  type: array
+                                mismatchLabelKeys:
+                                  items:
+                                    type: string
+                                  type: array
+                                namespaceSelector:
+                                  properties:
+                                    matchExpressions:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                    matchLabels:
+                                      additionalProperties:
+                                        type: string
+                                      type: object
+                                  type: object
+                                namespaces:
+                                  items:
+                                    type: string
+                                  type: array
+                                topologyKey:
+                                  type: string
+                              type: object
+                            type: array
+                        type: object
+                    type: object
+                  image:
+                    description: Allows specifying a custom image for the `Bot` pod.
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
+                    nullable: true
+                    type: string
+                  imagePullPolicy:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
+                    nullable: true
+                    type: string
+                  nodeName:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                    nullable: true
+                    type: string
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                    nullable: true
+                    type: object
+                  tolerations:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                    items:
+                      properties:
+                        effect:
+                          type: string
+                        key:
+                          type: string
+                        operator:
+                          type: string
+                        tolerationSeconds:
+                          format: int64
+                          nullable: true
+                          type: integer
+                        value:
+                          type: string
+                      type: object
+                    nullable: true
+                    type: array
+                title: Pod
+                type: object
+              resources:
+                description: Resource requirements for the `Bot` pod.
+                externalDocs:
+                  url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                nullable: true
+                properties:
+                  claims:
+                    items:
+                      properties:
+                        name:
+                          type: string
+                        request:
+                          type: string
+                      type: object
+                    type: array
+                  limits:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  requests:
+                    additionalProperties:
+                      type: string
+                    type: object
+                title: Resources
+                type: object
+              service:
+                description: Configures the `Bot`s `Service`.
+                nullable: true
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/definitions/object-meta-v1-meta/#ObjectMeta
+                    nullable: true
+                    type: object
+                  externalTrafficPolicy:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
+                    nullable: true
+                    type: string
+                  ipFamilyPolicy:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
+                    nullable: true
+                    type: string
+                  port:
+                    description: |-
+                      Port of the `Bot`s status endpoint.
+
+                      Default is `8080`.
+                    format: int32
+                    nullable: true
+                    type: integer
+                  type:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
+                    nullable: true
+                    type: string
+                title: Service
+                type: object
+              target:
+                description: Target this `Bot` should be connected to.
+                properties:
+                  host:
+                    description: |-
+                      Custom host (IP or hostname) of the target server.
+
+                      This is required when `targetRef` is not specified. Otherwise, it overrides the target host implied by `targetRef`.
+                    nullable: true
+                    type: string
+                  port:
+                    description: |-
+                      Custom port of the target server.
+
+                      Can be specified together with `targetRef` to override the implied port.
+                    format: int32
+                    nullable: true
+                    type: integer
+                  targetRef:
+                    description: |-
+                      Reference to a target object.
+
+                      This may be one of the following types: `Server`, `Network`.
+
+                      If you want to connect through `Router` instances, you must set the `host` parameter to a hostname that routes accordingly.
+                    nullable: true
+                    properties:
+                      apiGroup:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    type: object
+                title: Target
+                type: object
+              viewer:
+                description: Configures a live viewer that exposes the bots view as a web page via HTTP.
+                nullable: true
+                properties:
+                  httpRoute:
+                    description: |-
+                      Configures an optional `HTTPRoute` exposing the live viewer.
+
+                      **Note**: Using `HTTPRoute` requires at least [Gateway API v0.5.0](https://gateway-api.sigs.k8s.io/reference/api-types/httproute/) to be installed on your cluster.
+                    nullable: true
+                    properties:
+                      hostnames:
+                        description: Hostnames for the `HTTPRoute`.
+                        items:
+                          type: string
+                        nullable: true
+                        type: array
+                        x-kubernetes-list-type: set
+                      matches:
+                        description: |-
+                          Custom matches for the `HTTPRoute`.
+
+                          If not specified all requests are matched.
+                        items:
+                          properties:
+                            headers:
+                              items:
+                                properties:
+                                  name:
+                                    type: string
+                                  type:
+                                    enum:
+                                    - Exact
+                                    - RegularExpression
+                                    nullable: true
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                              nullable: true
+                              type: array
+                            method:
+                              enum:
+                              - GET
+                              - HEAD
+                              - POST
+                              - PUT
+                              - DELETE
+                              - CONNECT
+                              - OPTIONS
+                              - TRACE
+                              - PATCH
+                              nullable: true
+                              type: string
+                            path:
+                              nullable: true
+                              properties:
+                                type:
+                                  enum:
+                                  - Exact
+                                  - PathPrefix
+                                  - RegularExpression
+                                  nullable: true
+                                  type: string
+                                value:
+                                  nullable: true
+                                  type: string
+                              type: object
+                            queryParams:
+                              items:
+                                properties:
+                                  name:
+                                    type: string
+                                  type:
+                                    enum:
+                                    - Exact
+                                    - RegularExpression
+                                    nullable: true
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                              nullable: true
+                              type: array
+                          type: object
+                        nullable: true
+                        type: array
+                      parentRefs:
+                        description: References to gateways the `HTTPRoute` should attach to.
+                        items:
+                          properties:
+                            group:
+                              nullable: true
+                              type: string
+                            kind:
+                              nullable: true
+                              type: string
+                            name:
+                              type: string
+                            namespace:
+                              nullable: true
+                              type: string
+                            port:
+                              format: int32
+                              nullable: true
+                              type: integer
+                            sectionName:
+                              nullable: true
+                              type: string
+                          type: object
+                        nullable: true
+                        type: array
+                    type: object
+                  mode:
+                    description: |-
+                      Determines in which mode mode the viewer launches.
+
+                      Default is `BirdsEye`.
+                    enum:
+                    - BirdsEye
+                    - FirstPerson
+                    nullable: true
+                    type: string
+                  port:
+                    description: |-
+                      Port of the viewer exposed on the `Bot`s `Service`.
+
+                      Default is `3000`.
+                    format: int32
+                    nullable: true
+                    type: integer
+                  viewDistance:
+                    description: |-
+                      View distance of the viewer.
+
+                      Default is `4`.
+                    exclusiveMinimum: false
+                    format: int32
+                    minimum: 1.0
+                    nullable: true
+                    type: integer
+                title: Viewer
+                type: object
+            required:
+            - target
+            type: object
+          status:
+            properties:
+              httpRoute:
+                description: Whether an `HTTPRoute` exists.
+                nullable: true
+                type: boolean
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

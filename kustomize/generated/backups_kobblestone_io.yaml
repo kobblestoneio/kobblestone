@@ -1,0 +1,215 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: backups.kobblestone.io
+spec:
+  conversion:
+    strategy: None
+  group: kobblestone.io
+  names:
+    kind: Backup
+    listKind: BackupList
+    plural: backups
+    singular: backup
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: |-
+        Current phase of the `Backup`.
+
+        Values:
+        - `Pending`: `Backup` is pending.
+        - `Running`: `Backup` is currently running.
+        - `Completed`: `Backup` completed successfully.
+        - `Failed`: `Backup` failed.
+      jsonPath: .status.phase
+      name: Status
+      priority: 0
+      type: string
+    - description: Message explaining the current state of the `Backup`.
+      jsonPath: .status.message
+      name: Message
+      priority: 0
+      type: string
+    - description: Name of the target.
+      jsonPath: .status.target
+      name: Target
+      priority: 0
+      type: string
+    - description: Name of the target `BackupRepo`.
+      jsonPath: .status.repo
+      name: Repo
+      priority: 0
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          A `Backup` defines a request for a snapshot of a `Server`.
+
+          The snapshot includes the servers data and configs. Transient data like `.jar` files is excluded.
+
+          Backups can be restored via the `Restore` object.
+
+          Live backups on running servers are supported and implemented using RCON.
+
+          **Note**: Backups are not supported for servers that do **not** have storage configured.
+        properties:
+          spec:
+            properties:
+              job:
+                description: Configures the spec of the managed `Job` object.
+                nullable: true
+                properties:
+                  activeDeadlineSeconds:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/batch/job-v1/#JobSpec
+                    format: int32
+                    nullable: true
+                    type: integer
+                  image:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
+                    nullable: true
+                    type: string
+                  resources:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                    nullable: true
+                    properties:
+                      claims:
+                        items:
+                          properties:
+                            name:
+                              type: string
+                            request:
+                              type: string
+                          type: object
+                        type: array
+                      limits:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      requests:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
+                  tolerations:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                    items:
+                      properties:
+                        effect:
+                          type: string
+                        key:
+                          type: string
+                        operator:
+                          type: string
+                        tolerationSeconds:
+                          format: int64
+                          nullable: true
+                          type: integer
+                        value:
+                          type: string
+                      type: object
+                    type: array
+                title: Job
+                type: object
+              repoRef:
+                description: Reference to the `BackupRepo` that will store the `Backup`.
+                properties:
+                  name:
+                    type: string
+                title: Repository
+                type: object
+              retainPolicy:
+                description: |-
+                  Policy that determines what should happen with the physical snapshot data when the `Backup` is deleted.
+
+                  Values:
+                  - `Retain`: Snapshots are retained in their `BackupRepo`.
+                  - `Delete`: An attempt is made to delete the snapshot from the `BackupRepo`. The result of that deletion is ignored and not awaited.
+                  - `RequireDelete`: The snapshot must be deleted from the `BackupRepo` for the `Backup` to be finally removed. Deletion is retried until success.
+
+                  Default is `Retain`.
+                enum:
+                - Retain
+                - Delete
+                - RequireDelete
+                nullable: true
+                title: Retain Policy
+                type: string
+              targetRef:
+                description: Reference to the target `Server`.
+                properties:
+                  apiGroup:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                title: Target
+                type: object
+            required:
+            - repoRef
+            - targetRef
+            type: object
+          status:
+            properties:
+              conditions:
+                description: Conditions of the `Backup`.
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      nullable: true
+                      type: integer
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  type: object
+                type: array
+              message:
+                description: Message explaining the current state of the `Backup`.
+                nullable: true
+                type: string
+              phase:
+                description: |-
+                  Current phase of the `Backup`.
+
+                  Values:
+                  - `Pending`: `Backup` is pending.
+                  - `Running`: `Backup` is currently running.
+                  - `Completed`: `Backup` completed successfully.
+                  - `Failed`: `Backup` failed.
+                enum:
+                - Pending
+                - Running
+                - Completed
+                - Failed
+                type: string
+              repo:
+                description: Name of the target `BackupRepo`.
+                nullable: true
+                type: string
+              target:
+                description: Name of the target.
+                nullable: true
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

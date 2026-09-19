@@ -1,0 +1,13 @@
+apiVersion: kobblestone.io/v1alpha1
+kind: CommandGroup
+metadata:
+  name: test-commands
+  namespace: minecraft
+spec:
+  targetRef:
+    name: test-server
+  trafficPolicy: External
+  commands:
+    - command: say Hello
+    - command: say World
+    - command: say !

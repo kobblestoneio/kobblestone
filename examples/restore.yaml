@@ -1,0 +1,11 @@
+apiVersion: kobblestone.io/v1alpha1
+kind: Restore
+metadata:
+  name: test-restore
+  namespace: minecraft
+spec:
+  backupRef:
+    name: test-backup
+  targetRef:
+    name: test-server
+  existingDataPolicy: Overwrite

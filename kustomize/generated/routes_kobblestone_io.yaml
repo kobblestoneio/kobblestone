@@ -1,0 +1,147 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: routes.kobblestone.io
+spec:
+  conversion:
+    strategy: None
+  group: kobblestone.io
+  names:
+    kind: Route
+    listKind: RouteList
+    plural: routes
+    singular: route
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: Name of the `Router` this `Route` is currently attached to.
+      jsonPath: .status.routerName
+      name: Router
+      priority: 0
+      type: string
+    - description: Current hostname that is routed.
+      jsonPath: .status.hostname
+      name: Host
+      priority: 0
+      type: string
+    - description: Resolved address (IP+port) of the target.
+      jsonPath: .status.backend
+      name: Backend
+      priority: 0
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          A `Route` defines a mapping from a hostname (e.g. `server.example.com`) to a Minecraft backend (`Server`, `Network, `Router` or `Service`).
+
+          Routes will be attached and installed on their parent `Router` instance, through which the hostname will be routable.
+        properties:
+          spec:
+            properties:
+              backendRef:
+                description: Reference to the backend where the hostname should be routed to.
+                properties:
+                  apiVersion:
+                    description: ApiVersion of the backend object.
+                    nullable: true
+                    type: string
+                  kind:
+                    description: |-
+                      Kind of the backend object.
+
+                      Supported values:
+                      - `Server`
+                      - `Network`
+                      - `Router`
+                      - `Service`
+
+                      Default is `Server`.
+                    example: Server
+                    nullable: true
+                    type: string
+                  name:
+                    description: Name of the backend object.
+                    example: my-server
+                    type: string
+                  namespace:
+                    description: Namespace of the backend object. Defaults to the namespace of the `Route`.
+                    nullable: true
+                    type: string
+                  port:
+                    description: |-
+                      Target port that exposes Minecraft.
+
+                      Default is `25565`.
+                    exclusiveMaximum: false
+                    exclusiveMinimum: false
+                    format: int32
+                    maximum: 65535.0
+                    minimum: 1.0
+                    nullable: true
+                    type: integer
+                required:
+                - name
+                title: Backend
+                type: object
+              hostname:
+                description: Hostname that should be routable.
+                example: server.example.com
+                format: hostname
+                title: Hostname
+                type: string
+              parentRef:
+                description: Reference to the parent `Router` this `Route` should be attached to.
+                properties:
+                  name:
+                    type: string
+                title: Parent
+                type: object
+            required:
+            - backendRef
+            - hostname
+            - parentRef
+            type: object
+          status:
+            properties:
+              backend:
+                description: Resolved address (IP+port) of the target.
+                nullable: true
+                type: string
+              conditions:
+                description: Conditions of the `Route`.
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      nullable: true
+                      type: integer
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  type: object
+                type: array
+              hostname:
+                description: Current hostname that is routed.
+                nullable: true
+                type: string
+              routerName:
+                description: Name of the `Router` this `Route` is currently attached to.
+                nullable: true
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

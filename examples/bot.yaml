@@ -1,0 +1,25 @@
+apiVersion: kobblestone.io/v1alpha1
+kind: Bot
+metadata:
+  name: test-bot
+  namespace: minecraft
+spec:
+  offlineUsername: TestBot
+  target:
+    targetRef:
+      name: test-server
+  behaviors:
+    - behaviorRef:
+        name: test-behavior
+  viewer:
+    mode: FirstPerson
+    httpRoute:
+      hostnames:
+        - bot.example.com
+      parentRefs:
+        - name: private
+          namespace: private-gateway
+          sectionName: http
+  resources:
+    limits:
+      memory: 500Mi

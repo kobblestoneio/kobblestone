@@ -1,0 +1,127 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: restores.kobblestone.io
+spec:
+  conversion:
+    strategy: None
+  group: kobblestone.io
+  names:
+    kind: Restore
+    listKind: RestoreList
+    plural: restores
+    singular: restore
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Status
+      priority: 0
+      type: string
+    - jsonPath: .status.message
+      name: Message
+      priority: 0
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          spec:
+            properties:
+              backupRef:
+                properties:
+                  name:
+                    type: string
+                type: object
+              existingDataPolicy:
+                enum:
+                - Fail
+                - Overwrite
+                nullable: true
+                type: string
+              job:
+                nullable: true
+                properties:
+                  activeDeadlineSeconds:
+                    format: int32
+                    nullable: true
+                    type: integer
+                  image:
+                    nullable: true
+                    type: string
+                  resources:
+                    nullable: true
+                    properties:
+                      claims:
+                        items:
+                          properties:
+                            name:
+                              type: string
+                            request:
+                              type: string
+                          type: object
+                        type: array
+                      limits:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      requests:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
+                  tolerations:
+                    items:
+                      properties:
+                        effect:
+                          type: string
+                        key:
+                          type: string
+                        operator:
+                          type: string
+                        tolerationSeconds:
+                          format: int64
+                          nullable: true
+                          type: integer
+                        value:
+                          type: string
+                      type: object
+                    nullable: true
+                    type: array
+                type: object
+              path:
+                nullable: true
+                type: string
+              targetRef:
+                properties:
+                  apiGroup:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                type: object
+            required:
+            - backupRef
+            - targetRef
+            type: object
+          status:
+            properties:
+              message:
+                nullable: true
+                type: string
+              phase:
+                enum:
+                - Pending
+                - Running
+                - Completed
+                - Failed
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

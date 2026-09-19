@@ -1,0 +1,217 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: commands.kobblestone.io
+spec:
+  conversion:
+    strategy: None
+  group: kobblestone.io
+  names:
+    kind: Command
+    listKind: CommandList
+    plural: commands
+    singular: command
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: |-
+        Current phase of the command.
+
+        Values:
+        - `Pending`: Command execution is pending.
+        - `Completed`: Command executed successfully.
+        - `Failed`: Command execution failed.
+      jsonPath: .status.phase
+      name: Status
+      priority: 0
+      type: string
+    - description: Raw response of the server after executing the command.
+      jsonPath: .status.response
+      name: Response
+      priority: 0
+      type: string
+    - description: Message explaining the current state of the `Command`.
+      jsonPath: .status.message
+      name: Message
+      priority: 0
+      type: string
+    - description: Name of the target object.
+      jsonPath: .spec.targetRef.name
+      name: Target
+      priority: 0
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          A `Command` object executes an arbitrary command on a Minecraft server via RCON.
+
+          Commands are executed **directly by the operator** with zero overhead.
+          Therefore, no additional resources such as `Job`/`Pod` will be allocated. 
+
+          Target servers **must** have RCON enabled for commands to work (`spec.rcon.disabled=null|false`).
+
+          The response of commands can be observed via `status.response`.
+        properties:
+          spec:
+            properties:
+              command:
+                description: Raw command string that should be executed against the target via RCON.
+                example: list
+                title: Command
+                type: string
+              passwordSecretRef:
+                description: |-
+                  Optional reference to a custom `Secret` holding the RCON password.
+
+                  Automatically implied when targeting a `Server` object.
+                nullable: true
+                properties:
+                  key:
+                    description: Name of the key.
+                    type: string
+                  name:
+                    description: Name of the `Secret`.
+                    type: string
+                required:
+                - key
+                - name
+                title: Password
+                type: object
+              targetRef:
+                description: |-
+                  Reference to a target where the command should be executed.
+
+                  The following targets are supported:
+                  - `Server`: Command targets a `Server` object.
+                  - `Service`: Command target a custom `Service` and port that exposes RCON.
+                properties:
+                  apiVersion:
+                    description: ApiVersion of the target object.
+                    nullable: true
+                    type: string
+                  kind:
+                    description: |-
+                      Kind of the target object.
+
+                      Supported values:
+                      - `Server`
+                      - `Service`
+
+                      Default is `Server`.
+                    example: Server
+                    nullable: true
+                    type: string
+                  name:
+                    description: Name of the target object.
+                    example: my-server
+                    type: string
+                  port:
+                    description: |-
+                      Target port that exposes RCON.
+
+                      Default is `25575`.
+                    exclusiveMaximum: false
+                    exclusiveMinimum: false
+                    format: int32
+                    maximum: 65535.0
+                    minimum: 1.0
+                    nullable: true
+                    type: integer
+                required:
+                - name
+                title: Target
+                type: object
+              timeoutMilliseconds:
+                description: "Timeout for the command in milliseconds. Default is no timeout.\r\n\r\nThe timeout is applied individually for opening the connection and executing the command.\r\n\r\nWhen a command times out, `status.phase` will be `Failed` and `status.failureReason` will be `Timeout`. "
+                example: 5000
+                exclusiveMinimum: false
+                format: int32
+                minimum: 1.0
+                nullable: true
+                title: Timeout
+                type: integer
+              trafficPolicy:
+                description: |-
+                  Policy that determines how RCON traffic flows to the target.
+
+                  Default is `Cluster`.
+
+                  `Cluster` means that traffic will **always** be routed inside the cluster to known `ClusterIP`s.
+
+                  `External` means that traffic may be routed to external IPs, such as `LoadBalancer` IPs.
+                  This may be useful when direct connectivity from the operator to the target is not given.
+                  **WARNING**: RCON connections are **unencrypted** and should **never** be routed through the internet.
+                  Ensure your `LoadBalancer` is **not** exposed to the internet.
+                enum:
+                - Cluster
+                - External
+                nullable: true
+                title: External Traffic
+                type: string
+            required:
+            - command
+            type: object
+          status:
+            properties:
+              conditions:
+                description: Conditions of the `Command`.
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      nullable: true
+                      type: integer
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  type: object
+                type: array
+              executedAt:
+                description: Timestamp when the command was executed or execution was attempted.
+                format: date-time
+                nullable: true
+                type: string
+              failureReason:
+                description: Reason of failure when command execution failed.
+                example: Timeout
+                nullable: true
+                type: string
+              message:
+                description: Message explaining the current state of the `Command`.
+                nullable: true
+                type: string
+              phase:
+                description: |-
+                  Current phase of the command.
+
+                  Values:
+                  - `Pending`: Command execution is pending.
+                  - `Completed`: Command executed successfully.
+                  - `Failed`: Command execution failed.
+                enum:
+                - Pending
+                - Completed
+                - Failed
+                type: string
+              response:
+                description: Raw response of the server after executing the command.
+                example: 'There are 0 of a max of 20 players online:'
+                nullable: true
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

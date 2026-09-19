@@ -1,0 +1,674 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: routers.kobblestone.io
+spec:
+  conversion:
+    strategy: None
+  group: kobblestone.io
+  names:
+    kind: Router
+    listKind: RouterList
+    plural: routers
+    singular: router
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: IP address of the `Router`.
+      jsonPath: .status.address
+      name: Address
+      priority: 0
+      type: string
+    - description: Number of replicas this `Router` should run.
+      format: int32
+      jsonPath: .spec.replicas
+      name: Replicas
+      priority: 0
+      type: integer
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          A `Router` defines a lightweight proxy routing Minecraft traffic based on the [Server Address](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Handshake) field of handshakes.
+
+          Usually, routers sit on the edge of your Minecraft infrastructure and may very well be exposed to the internet.
+
+          Routes are configured via `Route` objects.
+        properties:
+          spec:
+            properties:
+              hostnames:
+                description: |-
+                  List of hostnames this `Router` accepts. Supports wildcard.
+
+                  **Note**: An empty list does **not** mean "accept any", it means "accept none". Use `*` entry to accept any.
+                example:
+                - '*.example.com'
+                - '*.foo.com'
+                items:
+                  type: string
+                nullable: true
+                title: Hostnames
+                type: array
+                x-kubernetes-list-type: set
+              networking:
+                description: Networking options.
+                nullable: true
+                properties:
+                  allowAddresses:
+                    description: List of IPs and networks (CIDR) to allow. Allows everything by default.
+                    example:
+                    - 1.2.3.4
+                    - 0.0.0.0/0
+                    items:
+                      type: string
+                    nullable: true
+                    type: array
+                    x-kubernetes-list-type: set
+                  backendDialTimeout:
+                    description: Configures a timeout when connecting to backend servers. Default is no timeout.
+                    example: 5s
+                    nullable: true
+                    type: string
+                  denyAddresses:
+                    description: List of IPs and networks (CIDR) to deny.
+                    example:
+                    - 1.2.3.4
+                    - 0.0.0.0/0
+                    items:
+                      type: string
+                    nullable: true
+                    type: array
+                    x-kubernetes-list-type: set
+                  maxConnectionsPerSecond:
+                    description: |-
+                      Configures the max. number of connections per second this `Router` accepts.
+
+                      Default is `1`.
+                    exclusiveMinimum: false
+                    format: int32
+                    minimum: 1.0
+                    nullable: true
+                    type: integer
+                  proxyProtocol:
+                    description: Configures the PROXY protocol.
+                    nullable: true
+                    properties:
+                      receive:
+                        description: |-
+                          Whether the `Router` should accept the PROXY protocol.
+
+                          Default is `false`.
+                        nullable: true
+                        type: boolean
+                      send:
+                        description: |-
+                          Whether the `Router` should send the PROXY protocol to backends.
+
+                          Default is `false`.
+                        nullable: true
+                        type: boolean
+                      trustedProxies:
+                        description: |-
+                          List of trusted proxy IPs and networks (CIDR).
+
+                          An empty list accepts all IPs.
+                        items:
+                          type: string
+                        nullable: true
+                        type: array
+                        x-kubernetes-list-type: set
+                    type: object
+                title: Networking
+                type: object
+              pod:
+                description: Configures the spec of the managed `Pod` objects.
+                nullable: true
+                properties:
+                  affinity:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Affinity
+                    nullable: true
+                    properties:
+                      nodeAffinity:
+                        properties:
+                          preferredDuringSchedulingIgnoredDuringExecution:
+                            items:
+                              properties:
+                                preference:
+                                  properties:
+                                    matchExpressions:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                    matchFields:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                  type: object
+                                weight:
+                                  format: int32
+                                  type: integer
+                              type: object
+                            type: array
+                          requiredDuringSchedulingIgnoredDuringExecution:
+                            properties:
+                              nodeSelectorTerms:
+                                items:
+                                  properties:
+                                    matchExpressions:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                    matchFields:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                  type: object
+                                type: array
+                            type: object
+                        type: object
+                      podAffinity:
+                        properties:
+                          preferredDuringSchedulingIgnoredDuringExecution:
+                            items:
+                              properties:
+                                podAffinityTerm:
+                                  properties:
+                                    labelSelector:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                      type: object
+                                    matchLabelKeys:
+                                      items:
+                                        type: string
+                                      type: array
+                                    mismatchLabelKeys:
+                                      items:
+                                        type: string
+                                      type: array
+                                    namespaceSelector:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                      type: object
+                                    namespaces:
+                                      items:
+                                        type: string
+                                      type: array
+                                    topologyKey:
+                                      type: string
+                                  type: object
+                                weight:
+                                  format: int32
+                                  type: integer
+                              type: object
+                            type: array
+                          requiredDuringSchedulingIgnoredDuringExecution:
+                            items:
+                              properties:
+                                labelSelector:
+                                  properties:
+                                    matchExpressions:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                    matchLabels:
+                                      additionalProperties:
+                                        type: string
+                                      type: object
+                                  type: object
+                                matchLabelKeys:
+                                  items:
+                                    type: string
+                                  type: array
+                                mismatchLabelKeys:
+                                  items:
+                                    type: string
+                                  type: array
+                                namespaceSelector:
+                                  properties:
+                                    matchExpressions:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                    matchLabels:
+                                      additionalProperties:
+                                        type: string
+                                      type: object
+                                  type: object
+                                namespaces:
+                                  items:
+                                    type: string
+                                  type: array
+                                topologyKey:
+                                  type: string
+                              type: object
+                            type: array
+                        type: object
+                      podAntiAffinity:
+                        properties:
+                          preferredDuringSchedulingIgnoredDuringExecution:
+                            items:
+                              properties:
+                                podAffinityTerm:
+                                  properties:
+                                    labelSelector:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                      type: object
+                                    matchLabelKeys:
+                                      items:
+                                        type: string
+                                      type: array
+                                    mismatchLabelKeys:
+                                      items:
+                                        type: string
+                                      type: array
+                                    namespaceSelector:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                      type: object
+                                    namespaces:
+                                      items:
+                                        type: string
+                                      type: array
+                                    topologyKey:
+                                      type: string
+                                  type: object
+                                weight:
+                                  format: int32
+                                  type: integer
+                              type: object
+                            type: array
+                          requiredDuringSchedulingIgnoredDuringExecution:
+                            items:
+                              properties:
+                                labelSelector:
+                                  properties:
+                                    matchExpressions:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                    matchLabels:
+                                      additionalProperties:
+                                        type: string
+                                      type: object
+                                  type: object
+                                matchLabelKeys:
+                                  items:
+                                    type: string
+                                  type: array
+                                mismatchLabelKeys:
+                                  items:
+                                    type: string
+                                  type: array
+                                namespaceSelector:
+                                  properties:
+                                    matchExpressions:
+                                      items:
+                                        properties:
+                                          key:
+                                            type: string
+                                          operator:
+                                            type: string
+                                          values:
+                                            items:
+                                              type: string
+                                            type: array
+                                        type: object
+                                      type: array
+                                    matchLabels:
+                                      additionalProperties:
+                                        type: string
+                                      type: object
+                                  type: object
+                                namespaces:
+                                  items:
+                                    type: string
+                                  type: array
+                                topologyKey:
+                                  type: string
+                              type: object
+                            type: array
+                        type: object
+                    type: object
+                  image:
+                    description: Allows specifying a custom image for the `Router` pod.
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
+                    nullable: true
+                    type: string
+                  imagePullPolicy:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
+                    nullable: true
+                    type: string
+                  nodeName:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                    nullable: true
+                    type: string
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                    nullable: true
+                    type: object
+                  tolerations:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                    items:
+                      properties:
+                        effect:
+                          type: string
+                        key:
+                          type: string
+                        operator:
+                          type: string
+                        tolerationSeconds:
+                          format: int64
+                          nullable: true
+                          type: integer
+                        value:
+                          type: string
+                      type: object
+                    nullable: true
+                    type: array
+                title: Pod
+                type: object
+              replicas:
+                description: Number of replicas this `Router` should run.
+                format: int32
+                nullable: true
+                title: Replicas
+                type: integer
+              resources:
+                description: Resource requirements for the `Router` pods.
+                externalDocs:
+                  url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                nullable: true
+                properties:
+                  claims:
+                    items:
+                      properties:
+                        name:
+                          type: string
+                        request:
+                          type: string
+                      type: object
+                    type: array
+                  limits:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  requests:
+                    additionalProperties:
+                      type: string
+                    type: object
+                title: Resources
+                type: object
+              service:
+                description: |-
+                  Configures the spec of the managed `Service` object.
+
+                  By default, every `Router` creates `Service` of type `ClusterIP`.
+
+                  If you want to expose your `Router` externally, you may switch to `LoadBalancer`.
+                nullable: true
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/definitions/object-meta-v1-meta/#ObjectMeta
+                    nullable: true
+                    type: object
+                  externalTrafficPolicy:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
+                    nullable: true
+                    type: string
+                  ipFamilyPolicy:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
+                    nullable: true
+                    type: string
+                  port:
+                    description: |-
+                      Port on the `Service` that exposes Minecraft.
+
+                      Default is `25565`.
+                    exclusiveMaximum: false
+                    exclusiveMinimum: false
+                    format: int32
+                    maximum: 65535.0
+                    minimum: 1.0
+                    nullable: true
+                    type: integer
+                  type:
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
+                    nullable: true
+                    type: string
+                title: Service
+                type: object
+              staticRoutes:
+                description: Statically defined routes that are always available on the `Router` (not defined by `Route` objects).
+                items:
+                  properties:
+                    backend:
+                      description: Address (IP+port) of the target backend.
+                      example: server.example.svc.cluster.local:25565
+                      type: string
+                    hostname:
+                      description: Hostname.
+                      example: server.example.com
+                      format: hostname
+                      type: string
+                  required:
+                  - backend
+                  - hostname
+                  type: object
+                nullable: true
+                title: Static Routes
+                type: array
+              tcpRoute:
+                description: |-
+                  Configures an optional `TCPRoute` exposing the `Router`s Minecraft port.
+
+                  **Note**: Using `TCPRoute` requires at least [Gateway API v1.6.0](https://gateway-api.sigs.k8s.io/reference/api-spec/1.6/spec/) to be installed on your cluster.
+                nullable: true
+                properties:
+                  parentRefs:
+                    description: References to gateways the `TCPRoute` should attach to.
+                    items:
+                      properties:
+                        group:
+                          nullable: true
+                          type: string
+                        kind:
+                          nullable: true
+                          type: string
+                        name:
+                          type: string
+                        namespace:
+                          nullable: true
+                          type: string
+                        port:
+                          format: int32
+                          nullable: true
+                          type: integer
+                        sectionName:
+                          nullable: true
+                          type: string
+                      type: object
+                    nullable: true
+                    type: array
+                title: Gateway API
+                type: object
+            type: object
+          status:
+            properties:
+              address:
+                description: IP address of the `Router`.
+                nullable: true
+                type: string
+              conditions:
+                description: Conditions of the `Router`.
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      nullable: true
+                      type: integer
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  type: object
+                type: array
+              tcpRoute:
+                description: Whether a managed `TCPRoute` exists.
+                nullable: true
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

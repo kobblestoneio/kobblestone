@@ -1,0 +1,244 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: commandgroups.kobblestone.io
+spec:
+  conversion:
+    strategy: None
+  group: kobblestone.io
+  names:
+    kind: CommandGroup
+    listKind: CommandGroupList
+    plural: commandgroups
+    singular: commandgroup
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: |-
+        Current phase of the `CommandGroup`.
+
+        Values:
+        - `Pending`: Commands are pending or being executed.
+        - `Completed`: All commands executed successfully or failures have been explicitly ignored.
+        - `Failed`: A command has failed executing.
+      jsonPath: .status.phase
+      name: Status
+      priority: 0
+      type: string
+    - description: Message explaining the current state of the `CommandGroup`.
+      jsonPath: .status.message
+      name: Message
+      priority: 0
+      type: string
+    - description: Name of the target object.
+      jsonPath: .spec.targetRef.name
+      name: Target
+      priority: 0
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: A `CommandGroup` manages a set of `Command` objects that are created/executed in sequential order.
+        properties:
+          spec:
+            properties:
+              commands:
+                description: List of commands that should be executed on the target.
+                exclusiveMinimum: false
+                items:
+                  properties:
+                    command:
+                      description: Raw command string that should be executed against the target via RCON.
+                      example: list
+                      type: string
+                    ignoreFailure:
+                      description: |-
+                        Whether to ignore failures when executing the command.
+
+                        If enabled, the `CommandGroup` will keep executing subsequent commands in case of failure.
+                        Additionally, it will not have any negative impact o
+
+                        Default is `false`.
+                      nullable: true
+                      type: boolean
+                  required:
+                  - command
+                  type: object
+                minimum: 1.0
+                title: Commands
+                type: array
+              passwordSecretRef:
+                description: |-
+                  Optional reference to a custom `Secret` holding the RCON password.
+
+                  Automatically implied when targeting a `Server` object.
+                nullable: true
+                properties:
+                  key:
+                    description: Name of the key.
+                    type: string
+                  name:
+                    description: Name of the `Secret`.
+                    type: string
+                required:
+                - key
+                - name
+                title: Password
+                type: object
+              targetRef:
+                description: |-
+                  Reference to a target where the commands should be executed.
+
+                  The following targets are supported:
+                  - `Server`: Commands target a `Server` object.
+                  - `Service`: Commands target a custom `Service` and port that exposes RCON.
+                properties:
+                  apiVersion:
+                    description: ApiVersion of the target object.
+                    nullable: true
+                    type: string
+                  kind:
+                    description: |-
+                      Kind of the target object.
+
+                      Supported values:
+                      - `Server`
+                      - `Service`
+
+                      Default is `Server`.
+                    example: Server
+                    nullable: true
+                    type: string
+                  name:
+                    description: Name of the target object.
+                    example: my-server
+                    type: string
+                  port:
+                    description: |-
+                      Target port that exposes RCON.
+
+                      Default is `25575`.
+                    exclusiveMaximum: false
+                    exclusiveMinimum: false
+                    format: int32
+                    maximum: 65535.0
+                    minimum: 1.0
+                    nullable: true
+                    type: integer
+                required:
+                - name
+                title: Target
+                type: object
+              timeoutMilliseconds:
+                description: "Timeout for the commands in milliseconds. Default is no timeout.\r\n\r\nThe timeout is applied individually for opening the connection and executing the command.\r\n\r\nWhen a command times out, `status.phase` will be `Failed` and `status.failureReason` will be `Timeout`. "
+                example: 5000
+                exclusiveMinimum: false
+                format: int32
+                minimum: 1.0
+                nullable: true
+                title: Timeout
+                type: integer
+              trafficPolicy:
+                description: |-
+                  Policy that determines how RCON traffic flows to the target.
+
+                  Default is `Cluster`.
+
+                  `Cluster` means that traffic will **always** be routed inside the cluster to known `ClusterIP`s.
+
+                  `External` means that traffic may be routed to external IPs, such as `LoadBalancer` IPs.
+                  This may be useful when direct connectivity from the operator to the target is not given.
+                  **WARNING**: RCON connections are **unencrypted** and should **never** be routed through the internet.
+                  Ensure your `LoadBalancer` is **not** exposed to the internet.
+                enum:
+                - Cluster
+                - External
+                nullable: true
+                title: External Traffic
+                type: string
+            required:
+            - commands
+            type: object
+          status:
+            properties:
+              commands:
+                description: Contains response information for every command that was executed (or not due to failure).
+                items:
+                  properties:
+                    command:
+                      description: Raw command that was executed.
+                      type: string
+                    failureReason:
+                      description: Reason of failure when command execution failed.
+                      example: Timeout
+                      nullable: true
+                      type: string
+                    response:
+                      description: Raw response of the server after executing the command.
+                      example: 'There are 0 of a max of 20 players online:'
+                      nullable: true
+                      type: string
+                    status:
+                      description: |-
+                        Status of the individual command response.
+
+                        Values:
+                        - `Completed`: The command was executed successfully.
+                        - `Failed`: The command failed.
+                        - `Skipped`: Command execution was skipped due to previous failure.
+                      enum:
+                      - Completed
+                      - Failed
+                      - Skipped
+                      type: string
+                  required:
+                  - command
+                  type: object
+                type: array
+              conditions:
+                description: Conditions of the `CommandGroup`.
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      nullable: true
+                      type: integer
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  type: object
+                type: array
+              message:
+                description: Message explaining the current state of the `CommandGroup`.
+                nullable: true
+                type: string
+              phase:
+                description: |-
+                  Current phase of the `CommandGroup`.
+
+                  Values:
+                  - `Pending`: Commands are pending or being executed.
+                  - `Completed`: All commands executed successfully or failures have been explicitly ignored.
+                  - `Failed`: A command has failed executing.
+                enum:
+                - Pending
+                - Completed
+                - Failed
+                nullable: true
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

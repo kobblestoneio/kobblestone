@@ -1,0 +1,6 @@
+apiVersion: kobblestone.io/v1alpha1
+kind: Account
+metadata:
+  name: test-account
+  namespace: minecraft
+spec: { }

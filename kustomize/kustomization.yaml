@@ -1,0 +1,9 @@
+resources:
+  - ./generated
+  - service.yaml
+
+patches:
+  - path: ./deployment.yaml
+    target:
+      kind: Deployment
+      name: operator

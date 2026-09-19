@@ -1,0 +1,11 @@
+apiVersion: kobblestone.io/v1alpha1
+kind: Backup
+metadata:
+  name: test-backup
+  namespace: minecraft
+spec:
+  repoRef:
+    name: test-repo-s3
+  targetRef:
+    name: test-server
+  retainPolicy: RequireDelete
