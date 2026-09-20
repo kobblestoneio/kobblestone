@@ -23,6 +23,8 @@ Minecraft into a first-class citizen of Kubernetes.
 
 ## CRD Overview
 
+View the full CRD reference docs [here](https://doc.crds.dev/github.com/kobblestoneio/kobblestone.)
+
 - `Server`: Manages a Minecraft server instance.
 - `Router`: Defines a router that is able to route Minecraft traffic based on hostnames.
 - `Route`: Defines a routable hostname and target.
