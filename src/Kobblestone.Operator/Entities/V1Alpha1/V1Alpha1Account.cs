@@ -113,21 +113,41 @@ public sealed class
 
     public record V1Alpha1AccountAuthorizationPod
     {
+        [Description("""
+                     Custom image for the authorization container.
+
+                     Default is `ghcr.io/kobblestoneio/account-auth`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container")]
         public string? Image { get; set; }
 
+        [Description("""
+                     Image pull policy of the authorization container.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container")]
         public string? ImagePullPolicy { get; set; }
 
+        [Description("""
+                     Affinity of the authorization `Pod`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Affinity")]
         public V1Affinity? Affinity { get; set; }
 
+        [Description("""
+                     Name of the node the authorization `Pod` is scheduled on.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
         public string? NodeName { get; set; }
 
+        [Description("""
+                     Node selector of the authorization `Pod`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
         public IDictionary<string, string>? NodeSelector { get; set; }
 
+        [Description("""
+                     Tolerations of the authorization `Pod`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
         public IList<V1Toleration>? Tolerations { get; set; }
     }

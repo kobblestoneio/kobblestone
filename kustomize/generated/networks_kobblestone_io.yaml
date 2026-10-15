@@ -14,41 +14,63 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.proxy.version
+    - description: "IP address of the proxy's `Service`. External addresses are preferred: the IP assigned by a load balancer, then the first of `externalIPs`, then the cluster IP."
+      jsonPath: .status.address
+      name: Address
+      priority: 0
+      type: string
+    - description: |-
+        Velocity version.
+
+        Default is `LATEST`.
+      jsonPath: .spec.proxy.version
       name: Version
       priority: 0
       type: string
-    - format: int32
+    - description: |-
+        Number of proxy replicas.
+
+        Default is `1`.
+      format: int32
       jsonPath: .spec.proxy.replicas
       name: Replicas
       priority: 0
       type: integer
-    - jsonPath: .spec.route.hostname
-      name: Host
-      priority: 0
-      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: |-
+          A `Network` runs a [Velocity](https://papermc.io/software/velocity) proxy that connects players to multiple `Server`s or other `Network`s.
+
+          The proxy runs as a `Deployment`. The operator also manages its `Service`, configuration and forwarding `Secret` and, if configured, its `Route` and `TCPRoute`.
         properties:
           spec:
             properties:
               proxy:
+                description: Configures the Velocity proxy.
                 nullable: true
                 properties:
                   config:
+                    description: |-
+                      Custom `velocity.toml`.
+
+                      The operator always sets `servers`, `forced-hosts` and `forwarding-secret-file` (and `online-mode` if `offline` is `true`), overriding the values given here.
                     nullable: true
                     type: string
                   content:
+                    description: Configures plugins and the server icon of the proxy.
                     nullable: true
                     properties:
                       iconUrl:
+                        description: URL of an image used as the server icon of the proxy.
                         nullable: true
                         type: string
                       plugins:
+                        description: Plugins to install on the proxy.
                         items:
                           properties:
                             url:
+                              description: URL of the plugin `.jar` file.
                               type: string
                           required:
                           - url
@@ -57,6 +79,12 @@ spec:
                         type: array
                     type: object
                   forwardingSecretRef:
+                    description: |-
+                      Reference to a key of a `Secret` containing the [forwarding secret](https://docs.papermc.io/velocity/player-information-forwarding/) shared with the backend servers.
+
+                      If not set, a random secret is generated.
+
+                      **Note**: Only read when the network's own `Secret` is created.
                     nullable: true
                     properties:
                       key:
@@ -70,12 +98,20 @@ spec:
                     - name
                     type: object
                   jvm:
+                    description: Configures the JVM of the proxy.
                     nullable: true
                     properties:
                       memory:
+                        description: Configures memory settings for the JVM.
                         nullable: true
                         properties:
                           heapPercentage:
+                            description: |-
+                              Configures the percentage of memory reserved for the heap.
+
+                              Default is `75`.
+
+                              **Note**: For low-memory deployments, you might have to lower this.
                             exclusiveMaximum: false
                             exclusiveMinimum: false
                             format: int32
@@ -86,12 +122,18 @@ spec:
                         type: object
                     type: object
                   offline:
+                    description: |-
+                      If set to `true`, the proxy runs in offline mode (`online-mode = false`): player accounts are not verified.
+
+                      Default is `false`.
                     nullable: true
                     type: boolean
                   pod:
+                    description: Configures the proxy `Pod`s.
                     nullable: true
                     properties:
                       affinity:
+                        description: Affinity of the proxy `Pod`.
                         nullable: true
                         properties:
                           nodeAffinity:
@@ -424,20 +466,28 @@ spec:
                             type: object
                         type: object
                       image:
+                        description: |-
+                          Custom image for the proxy container.
+
+                          Default is `itzg/mc-proxy`.
                         nullable: true
                         type: string
                       imagePullPolicy:
+                        description: Image pull policy of the proxy container.
                         nullable: true
                         type: string
                       nodeName:
+                        description: Name of the node the proxy `Pod` is scheduled on.
                         nullable: true
                         type: string
                       nodeSelector:
                         additionalProperties:
                           type: string
+                        description: Node selector of the proxy `Pod`.
                         nullable: true
                         type: object
                       tolerations:
+                        description: Tolerations of the proxy `Pod`.
                         items:
                           properties:
                             effect:
@@ -457,10 +507,15 @@ spec:
                         type: array
                     type: object
                   replicas:
+                    description: |-
+                      Number of proxy replicas.
+
+                      Default is `1`.
                     format: int32
                     nullable: true
                     type: integer
                   resources:
+                    description: Compute resources of the proxy container.
                     nullable: true
                     properties:
                       claims:
@@ -482,15 +537,25 @@ spec:
                         type: object
                     type: object
                   version:
+                    description: |-
+                      Velocity version.
+
+                      Default is `LATEST`.
                     nullable: true
                     type: string
                 type: object
               route:
+                description: |-
+                  Configures a `Route` that makes the network reachable through a `Router` under a hostname.
+
+                  Removing it deletes the `Route`.
                 nullable: true
                 properties:
                   hostname:
+                    description: Hostname under which the network is reachable through the `Router`.
                     type: string
                   parentRef:
+                    description: Reference to the `Router` the `Route` is attached to.
                     properties:
                       name:
                         type: string
@@ -500,14 +565,24 @@ spec:
                 - parentRef
                 type: object
               servers:
+                description: |-
+                  Servers the proxy forwards players to.
+
+                  Players join the first available server in the given order, unless a forced host applies.
                 items:
                   properties:
                     hostname:
+                      description: Hostname that sends players directly to this server (forced host).
                       nullable: true
                       type: string
                     name:
+                      description: Name of the server in the proxy, e.g. for `/server <name>`.
                       type: string
                     targetRef:
+                      description: |-
+                        Reference to the `Server` or `Network` to forward players to.
+
+                        Supported kinds: `Server` (default), `Network`.
                       properties:
                         apiGroup:
                           type: string
@@ -525,24 +600,36 @@ spec:
                 nullable: true
                 type: array
               service:
+                description: Configures the `Service` of the proxy.
                 nullable: true
                 properties:
                   annotations:
                     additionalProperties:
                       type: string
+                    description: Annotations added to the proxy's `Service`, e.g. to configure a load balancer.
                     nullable: true
                     type: object
                   externalTrafficPolicy:
+                    description: External traffic policy of the proxy's `Service`.
                     nullable: true
                     type: string
                   ipFamilyPolicy:
+                    description: IP family policy of the proxy's `Service`.
                     nullable: true
                     type: string
                   port:
+                    description: |-
+                      Port on the `Service` that exposes Minecraft.
+
+                      Default is `25565`.
                     format: int32
                     nullable: true
                     type: integer
                   type:
+                    description: |-
+                      Type of the proxy's `Service`, e.g. `ClusterIP` or `LoadBalancer`.
+
+                      Default is `ClusterIP`.
                     nullable: true
                     type: string
                 type: object
@@ -583,6 +670,10 @@ spec:
             type: object
           status:
             properties:
+              address:
+                description: "IP address of the proxy's `Service`. External addresses are preferred: the IP assigned by a load balancer, then the first of `externalIPs`, then the cluster IP."
+                nullable: true
+                type: string
               tcpRoute:
                 description: Whether a managed `TCPRoute` exists.
                 nullable: true

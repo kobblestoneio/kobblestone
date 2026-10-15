@@ -34,7 +34,8 @@ public class RouterPodController(
 
         if (router is null)
         {
-            return ReconciliationResult<V1Pod>.Failure(entity, "Router object not found");
+            // The Router is being deleted and its Pods will be garbage collected. Nothing to do.
+            return ReconciliationResult<V1Pod>.Success(entity);
         }
 
         var containersReadyCondition = entity.Status.Conditions?.FirstOrDefault(c => c.Type == "ContainersReady");
@@ -109,7 +110,8 @@ public class RouterPodController(
 
         if (refreshed is null)
         {
-            return ReconciliationResult<V1Pod>.Failure(entity, "Pod was deleted during reconciling");
+            // Pod was deleted while reconciling. Nothing left to sync.
+            return ReconciliationResult<V1Pod>.Success(entity);
         }
 
         routesCondition = refreshed.Status.Conditions?.FirstOrDefault(c => c.Type == "RoutesSynced");

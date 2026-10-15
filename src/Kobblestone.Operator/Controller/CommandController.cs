@@ -6,17 +6,20 @@ using Kobblestone.Operator.Constants;
 using Kobblestone.Operator.Entities;
 using Kobblestone.Operator.Entities.V1Alpha1;
 using Kobblestone.Operator.Services;
+using Kobblestone.Operator.Utils;
 
 using KubeOps.Abstractions.Entities;
+using KubeOps.Abstractions.Events;
 using KubeOps.Abstractions.Rbac;
 using KubeOps.Abstractions.Reconciliation;
 using KubeOps.Abstractions.Reconciliation.Controller;
+using KubeOps.Abstractions.Reconciliation.Queue;
 using KubeOps.KubernetesClient;
 
 namespace Kobblestone.Operator.Controller;
 
-[EntityRbac(typeof(V1Alpha1Command), Verbs = RbacVerb.Watch | RbacVerb.Get | RbacVerb.Create | RbacVerb.Update)]
-[EntityRbac(typeof(V1Alpha1CommandGroup), Verbs = RbacVerb.Get | RbacVerb.Update)]
+[EntityRbac(typeof(V1Alpha1Command), Verbs = RbacVerb.Watch | RbacVerb.Get | RbacVerb.Update)]
+[EntityRbac(typeof(V1Alpha1CommandGroup), Verbs = RbacVerb.Get)]
 [EntityRbac(typeof(V1Alpha1Server), Verbs = RbacVerb.Get)]
 [GenericRbac(Groups = [V1Service.KubeGroup], Resources = [V1Service.KubePluralName],
     Verbs = RbacVerb.Get)]
@@ -24,7 +27,9 @@ namespace Kobblestone.Operator.Controller;
     Verbs = RbacVerb.Get)]
 public sealed class CommandController(
     IKubernetesClient client,
-    IRconConnectionFactory rconConnectionFactory) : IEntityController<V1Alpha1Command>
+    IRconConnectionFactory rconConnectionFactory,
+    EventPublisher emitEvent,
+    EntityQueue<V1Alpha1CommandGroup> queueCommandGroup) : IEntityController<V1Alpha1Command>
 {
     public async Task<ReconciliationResult<V1Alpha1Command>> ReconcileAsync(V1Alpha1Command entity,
         CancellationToken cancellationToken)
@@ -173,6 +178,7 @@ public sealed class CommandController(
             {
                 failureReason = "MissingSecret";
                 entity.Status.Message = "Secret not found";
+                requeueAfter = TimeSpan.FromSeconds(5);
             }
         }
         else
@@ -188,14 +194,27 @@ public sealed class CommandController(
 
             entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
 
-            return ReconciliationResult<V1Alpha1Command>.Failure(entity,
-                $"Failed to execute command due to reason {failureReason}", requeueAfter: requeueAfter);
+            // Waiting for the server to come up is expected, everything else points to a misconfiguration.
+            await emitEvent(entity,
+                failureReason,
+                $"Command not executed yet: {entity.Status.Message ?? failureReason}.",
+                failureReason is "ServerNotRunning" ? EventType.Normal : EventType.Warning,
+                cancellationToken).ConfigureAwait(false);
+
+            // Without requeueAfter (spec errors), the command is retried once its spec changes.
+            return ReconciliationResult<V1Alpha1Command>.Success(entity, requeueAfter);
         }
 
         if (host is null || port is null || password is null)
         {
-            return ReconciliationResult<V1Alpha1Command>.Failure(entity,
-                "Could not execute command due to missing parameters", requeueAfter: TimeSpan.FromSeconds(10));
+            var missing = host is null ? "host" : port is null ? "port" : "password";
+
+            await emitEvent(entity,
+                "MissingParameters",
+                $"Command not executed yet: could not determine the {missing} of the target.",
+                EventType.Warning, cancellationToken).ConfigureAwait(false);
+
+            return ReconciliationResult<V1Alpha1Command>.Success(entity, TimeSpan.FromSeconds(10));
         }
 
         var timeout = TimeSpan.FromMilliseconds(entity.Spec.TimeoutMilliseconds ?? 5000);
@@ -230,103 +249,11 @@ public sealed class CommandController(
 
         entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
 
-        // From here on is CommandGroup handling
-        if (entity.GetLabel("kobblestone.io/command-group") is not { } commandGroupName)
+        // The CommandGroupController derives the group's status from its commands and starts the next one.
+        if (entity.GetLabel(CommandGroupController.CommandGroupLabel) is { } commandGroupName)
         {
-            return ReconciliationResult<V1Alpha1Command>.Success(entity);
-        }
-
-        var commandGroup = await client
-            .GetAsync<V1Alpha1CommandGroup>(commandGroupName, entity.Namespace(), cancellationToken)
-            .ConfigureAwait(false);
-
-        if (commandGroup is null)
-        {
-            return ReconciliationResult<V1Alpha1Command>.Success(entity);
-        }
-
-        if (!int.TryParse(entity.GetAnnotation("kobblestone.io/command-group-index"), out var currentCommandIndex))
-        {
-            return ReconciliationResult<V1Alpha1Command>.Success(entity);
-        }
-
-        var currentCommand = commandGroup.Spec.Commands.ElementAtOrDefault(currentCommandIndex);
-
-        if (currentCommand is null)
-        {
-            // CommandGroup was probably modified in-between. We explicitly do not support this as we cannot properly handle this.
-            return ReconciliationResult<V1Alpha1Command>.Success(entity);
-        }
-
-        commandGroup.Status.Commands.Add(new V1Alpha1CommandGroup.V1Alpha1CommandGroupStatusCommand
-        {
-            Command = entity.Spec.Command,
-            Status = entity.Status.Phase is CommandPhase.Completed
-                ? V1Alpha1CommandGroup.CommandResponseStatus.Completed
-                : V1Alpha1CommandGroup.CommandResponseStatus.Failed,
-            FailureReason = entity.Status.FailureReason,
-            Response = entity.Status.Response
-        });
-
-        // Command in group has failed, and we cannot ignore it, so we skip the rest of the group
-        if (entity.Status.Phase is CommandPhase.Failed && currentCommand.IgnoreFailure is not true)
-        {
-            foreach (var remainingCommand in commandGroup.Spec.Commands.Skip(currentCommandIndex + 1))
-            {
-                commandGroup.Status.Commands.Add(new V1Alpha1CommandGroup.V1Alpha1CommandGroupStatusCommand
-                {
-                    Command = remainingCommand.Command, Status = V1Alpha1CommandGroup.CommandResponseStatus.Skipped
-                });
-            }
-
-            commandGroup.Status.Phase = V1Alpha1CommandGroup.CommandGroupPhase.Failed;
-            commandGroup.Status.Message = "One or more commands failed.";
-
-            await client.UpdateStatusAsync(commandGroup, cancellationToken).ConfigureAwait(false);
-
-            return ReconciliationResult<V1Alpha1Command>.Success(entity);
-        }
-
-        var nextCommand = commandGroup.Spec.Commands.ElementAtOrDefault(currentCommandIndex + 1);
-
-        if (nextCommand is null)
-        {
-            commandGroup.Status.Phase = V1Alpha1CommandGroup.CommandGroupPhase.Completed;
-            commandGroup.Status.Message = "All commands executed.";
-        }
-
-        await client.UpdateStatusAsync(commandGroup, cancellationToken).ConfigureAwait(false);
-
-        if (nextCommand is not null)
-        {
-            await client
-                .CreateAsync(
-                    new V1Alpha1Command
-                    {
-                        Metadata = new V1ObjectMeta
-                        {
-                            Name = $"{commandGroup.Name()}-{currentCommandIndex + 1}",
-                            NamespaceProperty = commandGroup.Namespace(),
-                            Labels =
-                                new Dictionary<string, string>
-                                {
-                                    { "kobblestone.io/command-group", commandGroup.Name() }
-                                },
-                            Annotations =
-                                new Dictionary<string, string>
-                                {
-                                    { "kobblestone.io/command-group-index", (currentCommandIndex + 1).ToString() }
-                                }
-                        },
-                        Spec = new V1Alpha1Command.V1Alpha1CommandSpec
-                        {
-                            Command = nextCommand.Command,
-                            TargetRef = commandGroup.Spec.TargetRef,
-                            PasswordSecretRef = commandGroup.Spec.PasswordSecretRef,
-                            TimeoutMilliseconds = commandGroup.Spec.TimeoutMilliseconds,
-                            TrafficPolicy = commandGroup.Spec.TrafficPolicy
-                        }
-                    }.Initialize().WithOwnerReference(commandGroup), cancellationToken).ConfigureAwait(false);
+            await queueCommandGroup.RequeueAsync(client, commandGroupName, entity.Namespace(), cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return ReconciliationResult<V1Alpha1Command>.Success(entity);

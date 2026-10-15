@@ -1,6 +1,7 @@
 ﻿using k8s.Models;
 
 using Kobblestone.Operator.Conditions;
+using Kobblestone.Operator.Constants;
 using Kobblestone.Operator.Entities.V1Alpha1;
 
 using KubeOps.Abstractions.Entities;
@@ -285,8 +286,7 @@ public sealed class AccountController(IKubernetesClient client) : IEntityControl
                     new V1Container
                     {
                         Name = "auth",
-                        Image = account.Spec.Authorization?.Pod?.Image ??
-                                "ghcr.io/kobblestoneio/account-auth:0.1.0",
+                        Image = account.Spec.Authorization?.Pod?.Image ?? ContainerImages.AccountAuth,
                         ImagePullPolicy = account.Spec.Authorization?.Pod?.ImagePullPolicy,
                         Env =
                         [

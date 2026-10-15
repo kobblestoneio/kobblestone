@@ -5,6 +5,7 @@ using k8s.Models;
 
 using Kobblestone.Operator.Constants;
 using Kobblestone.Operator.Entities.V1Alpha1;
+using Kobblestone.Operator.Utils;
 
 using KubeOps.Abstractions.Entities;
 using KubeOps.Abstractions.Rbac;
@@ -38,7 +39,7 @@ public sealed class NetworkController(IKubernetesClient client) : IEntityControl
     public async Task<ReconciliationResult<V1Alpha1Network>> ReconcileAsync(V1Alpha1Network entity,
         CancellationToken cancellationToken)
     {
-        await EnsureServiceAsync(entity, cancellationToken).ConfigureAwait(false);
+        var service = await EnsureServiceAsync(entity, cancellationToken).ConfigureAwait(false);
 
         await EnsureTcpRouteAsync(entity, cancellationToken).ConfigureAwait(false);
 
@@ -50,6 +51,10 @@ public sealed class NetworkController(IKubernetesClient client) : IEntityControl
         await EnsureRouteAsync(entity, cancellationToken).ConfigureAwait(false);
 
         await EnsureDeploymentAsync(entity, cancellationToken).ConfigureAwait(false);
+
+        // The NetworkServiceController queues this network whenever the Service changes, e.g. when its load balancer
+        // got an external IP.
+        entity.Status.Address = service.GetIpAddress();
 
         entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
 
@@ -286,7 +291,9 @@ public sealed class NetworkController(IKubernetesClient client) : IEntityControl
         route.Spec.BackendRef =
             new V1Alpha1Route.V1Alpha1RouteBackendRef
             {
-                Name = network.Name(), Namespace = network.Namespace(), Kind = "Network"
+                Name = network.Name(),
+                Namespace = network.Namespace(),
+                Kind = "Network"
             };
 
         route.WithOwnerReference(network);
@@ -353,6 +360,11 @@ public sealed class NetworkController(IKubernetesClient client) : IEntityControl
 
         config["servers"] = servers;
         config["forwarding-secret-file"] = "forwarding.secret";
+
+        if (network.Spec.Proxy?.Offline is true)
+        {
+            config["online-mode"] = false;
+        }
 
         var forcedHostsTable = new TomlTable();
 
@@ -421,7 +433,7 @@ public sealed class NetworkController(IKubernetesClient client) : IEntityControl
                     new V1Container
                     {
                         Name = "proxy",
-                        Image = network.Spec.Proxy?.Pod?.Image ?? "itzg/mc-proxy:java25",
+                        Image = network.Spec.Proxy?.Pod?.Image ?? ContainerImages.Proxy,
                         ImagePullPolicy = network.Spec.Proxy?.Pod?.ImagePullPolicy,
                         Ports =
                         [

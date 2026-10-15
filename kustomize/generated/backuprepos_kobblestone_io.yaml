@@ -14,48 +14,81 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.type
+    - description: |-
+        Type of the repository.
+
+        Values:
+        - `PersistentVolumeClaim`: Configured via `persistentVolumeClaim`.
+        - `S3`: Configured via `s3`.
+      jsonPath: .spec.type
       name: Type
       priority: 0
       type: string
-    - jsonPath: .spec.persistentVolumeClaim.name
+    - description: Name of the `PersistentVolumeClaim`. It is created if it does not exist.
+      jsonPath: .spec.persistentVolumeClaim.name
       name: Claim
       priority: 0
       type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: |-
+          A `BackupRepo` defines where `Backup`s store their snapshots.
+
+          Types:
+          - `PersistentVolumeClaim`: Snapshots are stored in a volume in the same namespace.
+          - `S3`: Snapshots are uploaded to an S3-compatible bucket.
+
+          **Note**: A volume that does not support `ReadWriteMany` can only be used by one backup, restore or snapshot cleanup at a time. Others wait until it is free.
         properties:
           spec:
             properties:
               persistentVolumeClaim:
+                description: Configures the volume. Required for type `PersistentVolumeClaim`.
                 nullable: true
                 properties:
                   name:
+                    description: Name of the `PersistentVolumeClaim`. It is created if it does not exist.
                     type: string
                   size:
+                    description: |-
+                      Size of the `PersistentVolumeClaim`, e.g. `50Gi`.
+
+                      Required if the claim does not exist yet. Only applied to claims created by the operator.
                     nullable: true
                     type: string
                   storageClassName:
+                    description: |-
+                      Storage class used if the operator creates the claim.
+
+                      Default is the default storage class of the cluster.
                     nullable: true
                     type: string
                   subPath:
+                    description: |-
+                      Path inside the volume under which snapshots are stored.
+
+                      Default is the root of the volume.
                     nullable: true
                     type: string
                 required:
                 - name
                 type: object
               s3:
+                description: Configures the bucket. Required for type `S3`.
                 nullable: true
                 properties:
                   bucket:
+                    description: Name of the bucket.
                     type: string
                   credentialsSecretRef:
+                    description: Reference to a `Secret` containing the credentials in the keys `access-key` and `secret-key`.
                     properties:
                       name:
                         type: string
                     type: object
                   endpoint:
+                    description: URL of the S3 endpoint.
                     type: string
                 required:
                 - bucket
@@ -63,6 +96,12 @@ spec:
                 - endpoint
                 type: object
               type:
+                description: |-
+                  Type of the repository.
+
+                  Values:
+                  - `PersistentVolumeClaim`: Configured via `persistentVolumeClaim`.
+                  - `S3`: Configured via `s3`.
                 enum:
                 - PersistentVolumeClaim
                 - S3
@@ -73,6 +112,7 @@ spec:
           status:
             properties:
               conditions:
+                description: Conditions of the `BackupRepo`.
                 items:
                   properties:
                     lastTransitionTime:

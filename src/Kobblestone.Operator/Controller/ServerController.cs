@@ -22,25 +22,50 @@ using KubernetesCRDModelGen.Models.gateway.networking.k8s.io;
 namespace Kobblestone.Operator.Controller;
 
 [EntityRbac(typeof(V1Alpha1Server), Verbs = RbacVerb.Watch | RbacVerb.Get | RbacVerb.Update)]
-[EntityRbac(typeof(V1Alpha1Route), Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete)]
-[GenericRbac(Groups = [V1TCPRoute.KubeGroup], Resources = [V1TCPRoute.KubePluralName],
-    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete)]
-[GenericRbac(Groups = [V1Service.KubeGroup], Resources = [V1Service.KubePluralName],
-    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update)]
-[GenericRbac(Groups = [V1Secret.KubeGroup], Resources = [V1Secret.KubePluralName],
-    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update)]
-[GenericRbac(Groups = [V1NetworkPolicy.KubeGroup], Resources = [V1NetworkPolicy.KubePluralName],
-    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete)]
-[GenericRbac(Groups = [V1PersistentVolumeClaim.KubeGroup], Resources = [V1PersistentVolumeClaim.KubePluralName],
-    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete)]
-[GenericRbac(Groups = [V1StatefulSet.KubeGroup], Resources = [V1StatefulSet.KubePluralName],
-    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update)]
+[EntityRbac(
+    typeof(V1Alpha1Route),
+    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete
+)]
+[GenericRbac(
+    Groups = [V1TCPRoute.KubeGroup],
+    Resources = [V1TCPRoute.KubePluralName],
+    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete
+)]
+[GenericRbac(
+    Groups = [V1Service.KubeGroup],
+    Resources = [V1Service.KubePluralName],
+    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update
+)]
+[GenericRbac(
+    Groups = [V1Secret.KubeGroup],
+    Resources = [V1Secret.KubePluralName],
+    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update
+)]
+[GenericRbac(
+    Groups = [V1NetworkPolicy.KubeGroup],
+    Resources = [V1NetworkPolicy.KubePluralName],
+    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete
+)]
+[GenericRbac(
+    Groups = [V1PersistentVolumeClaim.KubeGroup],
+    Resources = [V1PersistentVolumeClaim.KubePluralName],
+    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete
+)]
+[GenericRbac(
+    Groups = [V1StatefulSet.KubeGroup],
+    Resources = [V1StatefulSet.KubePluralName],
+    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update
+)]
+[GenericRbac(Groups = [V1Job.KubeGroup], Resources = [V1Job.KubePluralName], Verbs = RbacVerb.List)]
 public sealed class ServerController(
     IKubernetesClient client,
-    EntityFinalizerAttacher<ServerFinalizer, V1Alpha1Server> finalizer) : IEntityController<V1Alpha1Server>
+    EntityFinalizerAttacher<ServerFinalizer, V1Alpha1Server> finalizer
+) : IEntityController<V1Alpha1Server>
 {
-    public async Task<ReconciliationResult<V1Alpha1Server>> ReconcileAsync(V1Alpha1Server entity,
-        CancellationToken cancellationToken)
+    public async Task<ReconciliationResult<V1Alpha1Server>> ReconcileAsync(
+        V1Alpha1Server entity,
+        CancellationToken cancellationToken
+    )
     {
         entity = await finalizer(entity, cancellationToken).ConfigureAwait(false);
 
@@ -48,18 +73,34 @@ public sealed class ServerController(
         {
             entity.WithConditions(ServerConditions.Default);
 
-            entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
+            entity = await client
+                .UpdateStatusAsync(entity, cancellationToken)
+                .ConfigureAwait(false);
 
             return ReconciliationResult<V1Alpha1Server>.Success(entity);
         }
 
-        // Wake up server from hibernation
-        if (entity.GetAnnotation("kobblestone.io/wake-up") is "true")
-        {
-            entity.WithCondition(ServerConditions.Hibernating.False());
+        // Hibernation and wake-ups are requested via annotations. The decision is recorded in the Hibernating
+        // condition, which only this controller writes.
+        var (hibernationRequested, hibernatingCondition) = GetHibernationRequest(entity);
 
-            entity.Annotations().Remove("kobblestone.io/wake-up");
+        if (hibernatingCondition is not null)
+        {
+            entity.WithCondition(hibernatingCondition);
         }
+
+        // Backup/restore Jobs are the source of truth for whether the server's data is currently in use.
+        var activeJobs = await client
+            .ListActiveServerJobsAsync(entity.Namespace(), entity.Name(), cancellationToken)
+            .ConfigureAwait(false);
+
+        var activeBackup = activeJobs.FirstOrDefault(j =>
+            j.GetLabel(ServerOperations.BackupLabel) is not null
+        );
+
+        var activeRestore = activeJobs.FirstOrDefault(j =>
+            j.GetLabel(ServerOperations.RestoreLabel) is not null
+        );
 
         var service = await EnsureServiceAsync(entity, cancellationToken).ConfigureAwait(false);
 
@@ -73,21 +114,55 @@ public sealed class ServerController(
 
         await EnsureNetworkPolicyAsync(entity, cancellationToken).ConfigureAwait(false);
 
-        var ss = await EnsureStatefulSetAsync(entity, cancellationToken).ConfigureAwait(false);
+        // Never start the server while a restore or offline backup is using its data, regardless of spec.state or
+        // wake-ups.
+        var ss = await EnsureStatefulSetAsync(
+                entity,
+                holdStopped: activeJobs.Any(j => j.RequiresStoppedServer()),
+                cancellationToken
+            )
+            .ConfigureAwait(false);
 
-        var refreshed = await client.GetAsync<V1Alpha1Server>(entity.Name(), entity.Namespace(), cancellationToken)
+        var refreshed = await client
+            .GetAsync<V1Alpha1Server>(entity.Name(), entity.Namespace(), cancellationToken)
             .ConfigureAwait(false);
 
         if (refreshed is null)
         {
-            return ReconciliationResult<V1Alpha1Server>.Failure(entity, "Server was deleted while reconciling");
+            // Server was deleted while reconciling. Nothing left to do, owned resources are garbage collected.
+            return ReconciliationResult<V1Alpha1Server>.Success(entity);
         }
-
-        var address = $"{service.Name()}.{service.Namespace()}.svc.cluster.local:{service.Spec.Ports[0].Port}";
 
         var conditions = ServerUtils.GetConditions(ss);
 
         refreshed.WithConditions(conditions);
+
+        if (hibernatingCondition is not null)
+        {
+            refreshed.WithCondition(hibernatingCondition);
+        }
+
+        // Re-derived on every reconcile so that these informational conditions heal themselves, even if a job
+        // controller missed an update.
+        refreshed.WithCondition(
+            activeBackup is null
+                ? ServerConditions.BackupInProgress.False()
+                : ServerConditions
+                    .BackupInProgress.WithReason("Backup")
+                    .WithMessage(
+                        $"Backup {activeBackup.GetLabel(ServerOperations.BackupLabel)} is in progress."
+                    )
+        );
+
+        refreshed.WithCondition(
+            activeRestore is null
+                ? ServerConditions.RestoreInProgress.False()
+                : ServerConditions
+                    .RestoreInProgress.WithReason("Restore")
+                    .WithMessage(
+                        $"Restore {activeRestore.GetLabel(ServerOperations.RestoreLabel)} is in progress."
+                    )
+        );
 
         var phase = refreshed.GetPhase();
 
@@ -97,25 +172,77 @@ public sealed class ServerController(
         }
 
         refreshed.Status.Phase = phase;
-        refreshed.Status.Address = address;
+        // The ServerServiceController queues this server whenever the Service changes, e.g. when its load balancer
+        // got an external IP.
+        refreshed.Status.Address = service.GetIpAddress();
         refreshed.Status.TcpRoute = (tcpRoute is not null ? true : null);
         refreshed.Status.Type = entity.Spec.Type ?? ServerType.Vanilla;
 
         entity = await client.UpdateStatusAsync(refreshed, cancellationToken).ConfigureAwait(false);
 
+        if (hibernationRequested)
+        {
+            // Only remove the requests once the decision is persisted in the status. If this update fails, the next
+            // reconcile applies the same decision again.
+            entity.Annotations().Remove(ServerAnnotations.Hibernate);
+            entity.Annotations().Remove(ServerAnnotations.WakeUp);
+
+            entity = await client.UpdateAsync(entity, cancellationToken).ConfigureAwait(false);
+        }
+
         return ReconciliationResult<V1Alpha1Server>.Success(entity);
     }
 
-    public Task<ReconciliationResult<V1Alpha1Server>> DeletedAsync(V1Alpha1Server entity,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// Returns whether hibernation or a wake-up was requested via annotation, and the resulting Hibernating condition
+    /// (or <c>null</c> if the condition stays as it is). A wake-up wins over a hibernation request.
+    /// </summary>
+    private static (bool Requested, V1Condition? Condition) GetHibernationRequest(
+        V1Alpha1Server server
+    )
+    {
+        if (server.GetAnnotation(ServerAnnotations.WakeUp) is "true")
+        {
+            return (true, ServerConditions.Hibernating.False());
+        }
+
+        if (server.GetAnnotation(ServerAnnotations.Hibernate) is not "true")
+        {
+            return (false, null);
+        }
+
+        // The auto-sleep settings may have changed since the request was made. Ignore the request in that case.
+        return
+            server
+                is
+            {
+                Spec:
+                { AutoSleep.Mode: AutoSleepMode.Hibernate, State: not ServerState.Stopped }
+            }
+            ? (
+                true,
+                ServerConditions
+                    .Hibernating.WithReason("AutoSleep")
+                    .WithMessage("Server is hibernating because of player inactivity.")
+            )
+            : (true, (V1Condition?)null);
+    }
+
+    public Task<ReconciliationResult<V1Alpha1Server>> DeletedAsync(
+        V1Alpha1Server entity,
+        CancellationToken cancellationToken
+    )
     {
         return Task.FromResult(ReconciliationResult<V1Alpha1Server>.Success(entity));
     }
 
-    private async Task<V1NetworkPolicy?> EnsureNetworkPolicyAsync(V1Alpha1Server server,
-        CancellationToken cancellationToken)
+    private async Task<V1NetworkPolicy?> EnsureNetworkPolicyAsync(
+        V1Alpha1Server server,
+        CancellationToken cancellationToken
+    )
     {
-        var policy = await client.GetAsync<V1NetworkPolicy>(server.Name(), server.Namespace(), cancellationToken)
+        var policy = await client
+            .GetAsync<V1NetworkPolicy>(server.Name(), server.Namespace(), cancellationToken)
             .ConfigureAwait(false);
 
         if (server.Spec.NetworkPolicy is { Disabled: true } && policy is not null)
@@ -127,7 +254,11 @@ public sealed class ServerController(
 
         if (policy is null)
         {
-            policy = new V1NetworkPolicy { Metadata = new V1ObjectMeta(), Spec = new V1NetworkPolicySpec() };
+            policy = new V1NetworkPolicy
+            {
+                Metadata = new V1ObjectMeta(),
+                Spec = new V1NetworkPolicySpec(),
+            };
 
             await ApplyNetworkPolicyAsync(policy, server, cancellationToken).ConfigureAwait(false);
 
@@ -143,9 +274,13 @@ public sealed class ServerController(
         return policy;
     }
 
-    private async Task<V1Alpha1Route?> EnsureRouteAsync(V1Alpha1Server server, CancellationToken cancellationToken)
+    private async Task<V1Alpha1Route?> EnsureRouteAsync(
+        V1Alpha1Server server,
+        CancellationToken cancellationToken
+    )
     {
-        var route = await client.GetAsync<V1Alpha1Route>(server.Name(), server.Namespace(), cancellationToken)
+        var route = await client
+            .GetAsync<V1Alpha1Route>(server.Name(), server.Namespace(), cancellationToken)
             .ConfigureAwait(false);
 
         switch (server.Spec.Route)
@@ -160,8 +295,11 @@ public sealed class ServerController(
 
         if (route is null)
         {
-            route = new V1Alpha1Route { Metadata = new V1ObjectMeta(), Spec = new V1Alpha1Route.V1Alpha1RouteSpec() }
-                .Initialize();
+            route = new V1Alpha1Route
+            {
+                Metadata = new V1ObjectMeta(),
+                Spec = new V1Alpha1Route.V1Alpha1RouteSpec(),
+            }.Initialize();
 
             ApplyRoute(route, server);
 
@@ -177,17 +315,25 @@ public sealed class ServerController(
         return route;
     }
 
-    private async Task<V1Secret> EnsureSecretAsync(V1Alpha1Server server, CancellationToken cancellationToken)
+    private async Task<V1Secret> EnsureSecretAsync(
+        V1Alpha1Server server,
+        CancellationToken cancellationToken
+    )
     {
-        var secret = await client.GetAsync<V1Secret>(server.Name(), server.Namespace(), cancellationToken)
+        var secret = await client
+            .GetAsync<V1Secret>(server.Name(), server.Namespace(), cancellationToken)
             .ConfigureAwait(false);
 
         if (secret is null)
         {
             secret = new V1Secret
             {
-                Metadata = new V1ObjectMeta { Name = server.Name(), NamespaceProperty = server.Namespace() },
-                StringData = new Dictionary<string, string>()
+                Metadata = new V1ObjectMeta
+                {
+                    Name = server.Name(),
+                    NamespaceProperty = server.Namespace(),
+                },
+                StringData = new Dictionary<string, string>(),
             };
 
             if (server.Spec.Rcon?.PasswordSecretRef is { } rconSecretRef)
@@ -196,7 +342,10 @@ public sealed class ServerController(
                     .GetAsync<V1Secret>(rconSecretRef.Name, server.Namespace(), cancellationToken)
                     .ConfigureAwait(false);
 
-                if (rconSecret is not null && rconSecret.Data.TryGetValue(rconSecretRef.Key, out var password))
+                if (
+                    rconSecret is not null
+                    && rconSecret.Data.TryGetValue(rconSecretRef.Key, out var password)
+                )
                 {
                     secret.StringData["rcon-password"] = Encoding.UTF8.GetString(password);
                 }
@@ -204,7 +353,9 @@ public sealed class ServerController(
 
             if (!secret.StringData.ContainsKey("rcon-password"))
             {
-                secret.StringData["rcon-password"] = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24));
+                secret.StringData["rcon-password"] = Convert.ToHexStringLower(
+                    RandomNumberGenerator.GetBytes(24)
+                );
             }
 
             secret = await client.CreateAsync(secret, cancellationToken).ConfigureAwait(false);
@@ -213,10 +364,13 @@ public sealed class ServerController(
         return secret;
     }
 
-    private async Task<V1PersistentVolumeClaim?> EnsurePvcAsync(V1Alpha1Server server,
-        CancellationToken cancellationToken)
+    private async Task<V1PersistentVolumeClaim?> EnsurePvcAsync(
+        V1Alpha1Server server,
+        CancellationToken cancellationToken
+    )
     {
-        var pvc = await client.GetAsync<V1PersistentVolumeClaim>(server.Name(), server.Namespace(), cancellationToken)
+        var pvc = await client
+            .GetAsync<V1PersistentVolumeClaim>(server.Name(), server.Namespace(), cancellationToken)
             .ConfigureAwait(false);
 
         switch (server.Spec.Storage)
@@ -233,7 +387,8 @@ public sealed class ServerController(
         {
             pvc = new V1PersistentVolumeClaim
             {
-                Metadata = new V1ObjectMeta(), Spec = new V1PersistentVolumeClaimSpec()
+                Metadata = new V1ObjectMeta(),
+                Spec = new V1PersistentVolumeClaimSpec(),
             };
 
             ApplyPvc(pvc, server);
@@ -250,9 +405,13 @@ public sealed class ServerController(
         return pvc;
     }
 
-    private async Task<V1Service> EnsureServiceAsync(V1Alpha1Server server, CancellationToken cancellationToken)
+    private async Task<V1Service> EnsureServiceAsync(
+        V1Alpha1Server server,
+        CancellationToken cancellationToken
+    )
     {
-        var service = await client.GetAsync<V1Service>(server.Name(), server.Namespace(), cancellationToken)
+        var service = await client
+            .GetAsync<V1Service>(server.Name(), server.Namespace(), cancellationToken)
             .ConfigureAwait(false);
 
         if (service is null)
@@ -273,12 +432,16 @@ public sealed class ServerController(
         return service;
     }
 
-    private async Task<V1TCPRoute?> EnsureTcpRouteAsync(V1Alpha1Server server, CancellationToken cancellationToken)
+    private async Task<V1TCPRoute?> EnsureTcpRouteAsync(
+        V1Alpha1Server server,
+        CancellationToken cancellationToken
+    )
     {
         if (server.Spec.TcpRoute is null && server.Status.TcpRoute is true)
         {
             var existingRoute = await client
-                .GetAsync<V1TCPRoute>(server.Name(), server.Namespace(), cancellationToken).ConfigureAwait(false);
+                .GetAsync<V1TCPRoute>(server.Name(), server.Namespace(), cancellationToken)
+                .ConfigureAwait(false);
 
             if (existingRoute is null)
             {
@@ -295,12 +458,17 @@ public sealed class ServerController(
             return null;
         }
 
-        var route = await client.GetAsync<V1TCPRoute>(server.Name(), server.Namespace(), cancellationToken)
+        var route = await client
+            .GetAsync<V1TCPRoute>(server.Name(), server.Namespace(), cancellationToken)
             .ConfigureAwait(false);
 
         if (route is null)
         {
-            route = new V1TCPRoute { Metadata = new V1ObjectMeta(), Spec = new V1TCPRouteSpec { Rules = [] } };
+            route = new V1TCPRoute
+            {
+                Metadata = new V1ObjectMeta(),
+                Spec = new V1TCPRouteSpec { Rules = [] },
+            };
 
             ApplyTcpRoute(route, server);
 
@@ -331,31 +499,40 @@ public sealed class ServerController(
                     new V1TCPRouteSpecRulesBackendRefs
                     {
                         Name = server.Name(),
-                        Port = server.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort
-                    }
-                ]
-            }
+                        Port = server.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort,
+                    },
+                ],
+            },
         ];
 
         route.WithOwnerReference(server);
     }
 
-    private async Task<V1StatefulSet> EnsureStatefulSetAsync(V1Alpha1Server server, CancellationToken cancellationToken)
+    private async Task<V1StatefulSet> EnsureStatefulSetAsync(
+        V1Alpha1Server server,
+        bool holdStopped,
+        CancellationToken cancellationToken
+    )
     {
-        var ss = await client.GetAsync<V1StatefulSet>(server.Name(), server.Namespace(), cancellationToken)
+        var ss = await client
+            .GetAsync<V1StatefulSet>(server.Name(), server.Namespace(), cancellationToken)
             .ConfigureAwait(false);
 
         if (ss is null)
         {
-            ss = new V1StatefulSet { Metadata = new V1ObjectMeta(), Spec = new V1StatefulSetSpec() };
+            ss = new V1StatefulSet
+            {
+                Metadata = new V1ObjectMeta(),
+                Spec = new V1StatefulSetSpec(),
+            };
 
-            ApplyStatefulSet(ss, server);
+            ApplyStatefulSet(ss, server, holdStopped);
 
             ss = await client.CreateAsync(ss, cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            ApplyStatefulSet(ss, server);
+            ApplyStatefulSet(ss, server, holdStopped);
 
             ss = await client.UpdateAsync(ss, cancellationToken).ConfigureAwait(false);
         }
@@ -363,15 +540,21 @@ public sealed class ServerController(
         return ss;
     }
 
-    private Task ApplyNetworkPolicyAsync(V1NetworkPolicy policy, V1Alpha1Server server,
-        CancellationToken cancellationToken)
+    private Task ApplyNetworkPolicyAsync(
+        V1NetworkPolicy policy,
+        V1Alpha1Server server,
+        CancellationToken cancellationToken
+    )
     {
         policy.Metadata.Name = server.Name();
         policy.Metadata.NamespaceProperty = server.Namespace();
 
         policy.Spec.PodSelector = new V1LabelSelector
         {
-            MatchLabels = new Dictionary<string, string> { { "kobblestone.io/server", server.Name() } }
+            MatchLabels = new Dictionary<string, string>
+            {
+                { "kobblestone.io/server", server.Name() },
+            },
         };
         policy.Spec.PolicyTypes = ["Ingress"];
         policy.Spec.Ingress =
@@ -390,10 +573,11 @@ public sealed class ServerController(
                             [
                                 new V1LabelSelectorRequirement
                                 {
-                                    Key = "kobblestone.io/router", OperatorProperty = "Exists"
-                                }
-                            ]
-                        }
+                                    Key = "kobblestone.io/router",
+                                    OperatorProperty = "Exists",
+                                },
+                            ],
+                        },
                     },
                     new V1NetworkPolicyPeer
                     {
@@ -404,10 +588,11 @@ public sealed class ServerController(
                             [
                                 new V1LabelSelectorRequirement
                                 {
-                                    Key = "kobblestone.io/network", OperatorProperty = "Exists"
-                                }
-                            ]
-                        }
+                                    Key = "kobblestone.io/network",
+                                    OperatorProperty = "Exists",
+                                },
+                            ],
+                        },
                     },
                     new V1NetworkPolicyPeer
                     {
@@ -418,20 +603,21 @@ public sealed class ServerController(
                             [
                                 new V1LabelSelectorRequirement
                                 {
-                                    Key = "kobblestone.io/bot", OperatorProperty = "Exists"
-                                }
-                            ]
-                        }
-                    }
+                                    Key = "kobblestone.io/bot",
+                                    OperatorProperty = "Exists",
+                                },
+                            ],
+                        },
+                    },
                 ],
                 Ports =
                 [
                     new V1NetworkPolicyPort
                     {
                         Port = server.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort,
-                        Protocol = "TCP"
-                    }
-                ]
+                        Protocol = "TCP",
+                    },
+                ],
             },
             // Allow RCON from any Backup Pod
             new V1NetworkPolicyIngressRule
@@ -447,20 +633,22 @@ public sealed class ServerController(
                             [
                                 new V1LabelSelectorRequirement
                                 {
-                                    Key = "kobblestone.io/backup", OperatorProperty = "Exists"
-                                }
-                            ]
-                        }
-                    }
+                                    Key = "kobblestone.io/backup",
+                                    OperatorProperty = "Exists",
+                                },
+                            ],
+                        },
+                    },
                 ],
                 Ports =
                 [
                     new V1NetworkPolicyPort
                     {
-                        Port = server.Spec.Rcon?.Port ?? MinecraftConstants.DefaultRconPort, Protocol = "TCP"
-                    }
-                ]
-            }
+                        Port = server.Spec.Rcon?.Port ?? MinecraftConstants.DefaultRconPort,
+                        Protocol = "TCP",
+                    },
+                ],
+            },
         ];
 
         // Allow Minecraft from Gateway Pods
@@ -468,66 +656,77 @@ public sealed class ServerController(
         {
             foreach (var tcpRouteParentRef in tcpRouteParentRefs)
             {
-                policy.Spec.Ingress.Add(new V1NetworkPolicyIngressRule
-                {
-                    FromProperty =
-                    [
-                        new V1NetworkPolicyPeer
-                        {
-                            NamespaceSelector =
-                                tcpRouteParentRef.Namespace is { } ns
+                policy.Spec.Ingress.Add(
+                    new V1NetworkPolicyIngressRule
+                    {
+                        FromProperty =
+                        [
+                            new V1NetworkPolicyPeer
+                            {
+                                NamespaceSelector = tcpRouteParentRef.Namespace is { } ns
                                     ? new V1LabelSelector
                                     {
                                         MatchLabels = new Dictionary<string, string>
                                         {
-                                            { "kubernetes.io/metadata.name", ns }
-                                        }
+                                            { "kubernetes.io/metadata.name", ns },
+                                        },
                                     }
                                     : new V1LabelSelector(),
-                            PodSelector = new V1LabelSelector
-                            {
-                                MatchLabels = new Dictionary<string, string>
+                                PodSelector = new V1LabelSelector
                                 {
-                                    { "gateway.networking.k8s.io/gateway-name", tcpRouteParentRef.Name }
-                                }
-                            }
-                        }
-                    ],
-                    Ports =
-                    [
-                        new V1NetworkPolicyPort
-                        {
-                            Port = server.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort,
-                            Protocol = "TCP"
-                        }
-                    ]
-                });
+                                    MatchLabels = new Dictionary<string, string>
+                                    {
+                                        {
+                                            "gateway.networking.k8s.io/gateway-name",
+                                            tcpRouteParentRef.Name
+                                        },
+                                    },
+                                },
+                            },
+                        ],
+                        Ports =
+                        [
+                            new V1NetworkPolicyPort
+                            {
+                                Port =
+                                    server.Spec.Service?.Port
+                                    ?? MinecraftConstants.DefaultMinecraftPort,
+                                Protocol = "TCP",
+                            },
+                        ],
+                    }
+                );
             }
         }
 
         if (server.Spec.Service?.Type is "LoadBalancer")
         {
             // Allow RCON and Minecraft from any IP since we have a LoadBalancer (RCON should be disabled most of the time)
-            policy.Spec.Ingress.Add(new V1NetworkPolicyIngressRule
-            {
-                FromProperty =
-                [
-                    new V1NetworkPolicyPeer { IpBlock = new V1IPBlock { Cidr = "0.0.0.0/0" } },
-                    new V1NetworkPolicyPeer { IpBlock = new V1IPBlock { Cidr = "::/0" } }
-                ],
-                Ports =
-                [
-                    new V1NetworkPolicyPort
-                    {
-                        Port = server.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort,
-                        Protocol = "TCP"
-                    },
-                    new V1NetworkPolicyPort
-                    {
-                        Port = server.Spec.Rcon?.Port ?? MinecraftConstants.DefaultRconPort, Protocol = "TCP"
-                    }
-                ]
-            });
+            policy.Spec.Ingress.Add(
+                new V1NetworkPolicyIngressRule
+                {
+                    FromProperty =
+                    [
+                        new V1NetworkPolicyPeer { IpBlock = new V1IPBlock { Cidr = "0.0.0.0/0" } },
+                        new V1NetworkPolicyPeer { IpBlock = new V1IPBlock { Cidr = "::/0" } },
+                    ],
+                    Ports =
+                    [
+                        new V1NetworkPolicyPort
+                        {
+                            Port =
+                                server.Spec.Service?.Port
+                                ?? MinecraftConstants.DefaultMinecraftPort,
+                            Protocol = "TCP",
+                        },
+                        new V1NetworkPolicyPort
+                        {
+                            Port = server.Spec.Rcon?.Port ?? MinecraftConstants.DefaultRconPort,
+                            Protocol = "TCP",
+                        },
+                    ],
+                }
+            );
         }
 
         foreach (var extraIngressRule in server.Spec.NetworkPolicy?.ExtraIngressRules ?? [])
@@ -547,27 +746,34 @@ public sealed class ServerController(
 
         route.Spec.ParentRef = server.Spec.Route!.ParentRef;
         route.Spec.Hostname = server.Spec.Route!.Hostname;
-        route.Spec.BackendRef =
-            new V1Alpha1Route.V1Alpha1RouteBackendRef { Name = server.Name(), Namespace = server.Namespace() };
+        route.Spec.BackendRef = new V1Alpha1Route.V1Alpha1RouteBackendRef
+        {
+            Name = server.Name(),
+            Namespace = server.Namespace(),
+        };
 
         route.WithOwnerReference(server);
     }
 
-    private static void ApplyStatefulSet(V1StatefulSet ss, V1Alpha1Server server)
+    private static void ApplyStatefulSet(V1StatefulSet ss, V1Alpha1Server server, bool holdStopped)
     {
         ss.Metadata.Name = server.Name();
         ss.Metadata.NamespaceProperty = server.Namespace();
         ss.SetLabel("kobblestone.io/server", server.Name());
 
-        ss.Spec.Replicas = server.Spec.State is null or ServerState.Running
-            ? (server.HasCondition(ServerConditions.Hibernating) ? 0 : 1)
-            : 0;
+        ss.Spec.Replicas =
+            !holdStopped && server.Spec.State is null or ServerState.Running
+                ? (server.HasCondition(ServerConditions.Hibernating) ? 0 : 1)
+                : 0;
 
         ss.Spec.ServiceName = server.Name();
         ss.Spec.Selector = new V1LabelSelector { MatchLabels = PodLabels(server) };
         ss.Spec.UpdateStrategy = new V1StatefulSetUpdateStrategy
         {
-            Type = server.Spec.Lifecycle?.RolloutPolicy is RolloutPolicy.Manual ? "OnDelete" : "RollingUpdate"
+            Type =
+                server.Spec.Lifecycle?.RolloutPolicy is RolloutPolicy.Manual
+                    ? "OnDelete"
+                    : "RollingUpdate",
         };
         ss.Spec.Template = new V1PodTemplateSpec
         {
@@ -584,35 +790,45 @@ public sealed class ServerController(
                     new()
                     {
                         Name = "secret",
-                        Secret = new V1SecretVolumeSource { SecretName = server.Name(), Optional = false }
-                    }
-                }.Concat(server.Spec.Storage is null
-                    ? []
-                    :
-                    [
-                        new V1Volume
+                        Secret = new V1SecretVolumeSource
                         {
-                            Name = "data",
-                            PersistentVolumeClaim = new V1PersistentVolumeClaimVolumeSource
-                            {
-                                ClaimName = server.Name()
-                            }
-                        }
-                    ]).Concat(server.Spec.Pod?.Volumes ?? []).ToList(),
+                            SecretName = server.Name(),
+                            Optional = false,
+                        },
+                    },
+                }
+                    .Concat(
+                        server.Spec.Storage is null
+                            ? []
+                            :
+                            [
+                                new V1Volume
+                                {
+                                    Name = "data",
+                                    PersistentVolumeClaim = new V1PersistentVolumeClaimVolumeSource
+                                    {
+                                        ClaimName = server.Name(),
+                                    },
+                                },
+                            ]
+                    )
+                    .Concat(server.Spec.Pod?.Volumes ?? [])
+                    .ToList(),
                 InitContainers =
                 [
                     new V1Container
                     {
                         Name = "proxy",
-                        Image = "itzg/mc-router:1.46.2",
+                        Image = ContainerImages.Router,
                         RestartPolicy = "Always",
                         Ports =
                         [
                             new V1ContainerPort
                             {
-                                Name = "minecraft", ContainerPort = MinecraftConstants.DefaultMinecraftPort
+                                Name = "minecraft",
+                                ContainerPort = MinecraftConstants.DefaultMinecraftPort,
                             },
-                            new V1ContainerPort { Name = "metrics", ContainerPort = 8080 }
+                            new V1ContainerPort { Name = "metrics", ContainerPort = 8080 },
                         ],
                         Env = new List<V1EnvVar>()
                             .Concat([
@@ -626,12 +842,12 @@ public sealed class ServerController(
                                 new V1EnvVar
                                 {
                                     Name = "AUTO_SCALE_DOWN_AFTER",
-                                    Value = $"{(server.Spec.AutoSleep?.TimeoutSeconds ?? 60)}s"
+                                    Value = $"{(server.Spec.AutoSleep?.TimeoutSeconds ?? 60)}s",
                                 },
                                 new V1EnvVar { Name = "AUTO_SCALE_WEBHOOK_URL", Value = "" },
                             ])
                             .ToList(),
-                    }
+                    },
                 ],
                 Containers =
                 [
@@ -639,75 +855,104 @@ public sealed class ServerController(
                     {
                         Name = "server",
                         Image =
-                            server.Spec.Pod?.Image ??
-                            $"itzg/minecraft-server:2026.8.0-{(server.Spec.Jvm?.Version ?? "java25")}",
+                            server.Spec.Pod?.Image
+                            ?? ContainerImages.MinecraftServer(server.Spec.Jvm?.Version),
                         ImagePullPolicy = server.Spec.Pod?.ImagePullPolicy,
                         VolumeMounts = new List<V1VolumeMount>
+                        {
+                            new()
                             {
-                                new() { Name = "secret", MountPath = "/secrets", ReadOnlyProperty = true }
-                            }
-                            .Concat(server.Spec.Storage is null
-                                ? []
-                                :
-                                [
-                                    new V1VolumeMount { Name = "data", MountPath = "/data" }
-                                ]).Concat(server.Spec.Pod?.VolumeMounts ?? []).ToList(),
+                                Name = "secret",
+                                MountPath = "/secrets",
+                                ReadOnlyProperty = true,
+                            },
+                        }
+                            .Concat(
+                                server.Spec.Storage is null
+                                    ? []
+                                    : [new V1VolumeMount { Name = "data", MountPath = "/data" }]
+                            )
+                            .Concat(server.Spec.Pod?.VolumeMounts ?? [])
+                            .ToList(),
                         Env = new List<V1EnvVar>()
-                            .Concat(server.Spec.Content?.CurseForge?.ApiKeySecretRef is { } cfApiKeySecretRef
-                                ?
-                                [
-                                    new V1EnvVar
-                                    {
-                                        Name = "CF_API_KEY",
-                                        ValueFrom = new V1EnvVarSource
+                            .Concat(
+                                server.Spec.Content?.CurseForge?.ApiKeySecretRef
+                                    is { } cfApiKeySecretRef
+                                    ?
+                                    [
+                                        new V1EnvVar
                                         {
-                                            SecretKeyRef = new V1SecretKeySelector
+                                            Name = "CF_API_KEY",
+                                            ValueFrom = new V1EnvVarSource
                                             {
-                                                Name = cfApiKeySecretRef.Name,
-                                                Key = cfApiKeySecretRef.Key,
-                                                Optional = true
-                                            }
-                                        }
-                                    }
-                                ]
-                                : [])
+                                                SecretKeyRef = new V1SecretKeySelector
+                                                {
+                                                    Name = cfApiKeySecretRef.Name,
+                                                    Key = cfApiKeySecretRef.Key,
+                                                    Optional = true,
+                                                },
+                                            },
+                                        },
+                                    ]
+                                    : []
+                            )
                             .Concat(GetEnvVars(server))
-                            .Concat(server.Spec.Pod?.Env ?? []).ToList(),
-                        StartupProbe =
-                            new V1Probe
+                            .Concat(server.Spec.Pod?.Env ?? [])
+                            .ToList(),
+                        StartupProbe = new V1Probe
+                        {
+                            Exec = new V1ExecAction
                             {
-                                Exec = new V1ExecAction
-                                {
-                                    Command = ["/usr/local/bin/mc-monitor", "status", "--host", "localhost"]
-                                },
-                                PeriodSeconds = 5,
-                                FailureThreshold =
-                                    Math.Max((server.Spec.Timeouts?.MaxStartupTimeSeconds ?? 360) / 5, 1)
+                                Command =
+                                [
+                                    "/usr/local/bin/mc-monitor",
+                                    "status",
+                                    "--host",
+                                    "localhost",
+                                ],
                             },
-                        ReadinessProbe =
-                            new V1Probe
+                            PeriodSeconds = 5,
+                            FailureThreshold = Math.Max(
+                                (server.Spec.Timeouts?.MaxStartupTimeSeconds ?? 360) / 5,
+                                1
+                            ),
+                        },
+                        ReadinessProbe = new V1Probe
+                        {
+                            Exec = new V1ExecAction
                             {
-                                Exec = new V1ExecAction
-                                {
-                                    Command = ["/usr/local/bin/mc-monitor", "status", "--host", "localhost"]
-                                },
-                                PeriodSeconds = 5,
-                                FailureThreshold = 3
+                                Command =
+                                [
+                                    "/usr/local/bin/mc-monitor",
+                                    "status",
+                                    "--host",
+                                    "localhost",
+                                ],
                             },
-                        LivenessProbe
-                            = new V1Probe
+                            PeriodSeconds = 5,
+                            FailureThreshold = 3,
+                        },
+                        LivenessProbe = new V1Probe
+                        {
+                            Exec = new V1ExecAction
                             {
-                                Exec = new V1ExecAction
-                                {
-                                    Command = ["/usr/local/bin/mc-monitor", "status", "--host", "localhost"]
-                                },
-                                PeriodSeconds = 5,
-                                FailureThreshold =
-                                    Math.Max((server.Spec.Timeouts?.MaxUnavailabilityTimeSeconds ?? 15) / 5, 1)
-                            }
-                    }
-                ]
-            }
+                                Command =
+                                [
+                                    "/usr/local/bin/mc-monitor",
+                                    "status",
+                                    "--host",
+                                    "localhost",
+                                ],
+                            },
+                            PeriodSeconds = 5,
+                            FailureThreshold = Math.Max(
+                                (server.Spec.Timeouts?.MaxUnavailabilityTimeSeconds ?? 15) / 5,
+                                1
+                            ),
+                        },
+                    },
+                ],
+            },
         };
 
         ss.WithOwnerReference(server);
@@ -724,7 +969,10 @@ public sealed class ServerController(
 
         pvc.Spec.Resources = new V1VolumeResourceRequirements
         {
-            Requests = new Dictionary<string, ResourceQuantity> { { "storage", server.Spec.Storage!.Size } }
+            Requests = new Dictionary<string, ResourceQuantity>
+            {
+                { "storage", server.Spec.Storage!.Size },
+            },
         };
 
         pvc.WithOwnerReference(server);
@@ -756,21 +1004,43 @@ public sealed class ServerController(
         envVars["REPLACE_ENV_DURING_SYNC"] = "true";
         envVars["REPLACE_ENV_VARIABLE_PREFIX"] = "";
         envVars["MEMORY"] = $"{(server.Spec.Jvm?.Memory?.HeapPercentage ?? 75)}%";
-        envVars["TYPE"] =
-            JsonNamingPolicy.SnakeCaseUpper.ConvertName((server.Spec.Type ?? ServerType.Vanilla).ToString());
+        envVars["TYPE"] = JsonNamingPolicy.SnakeCaseUpper.ConvertName(
+            (server.Spec.Type ?? ServerType.Vanilla).ToString()
+        );
         envVars["VERSION"] = server.Spec.Version ?? "LATEST";
         envVars["RCON_CMDS_STARTUP"] = string.Join("\n", server.Spec.AutoCommands?.OnStartup ?? []);
-        envVars["RCON_CMDS_ON_CONNECT"] = string.Join("\n", server.Spec.AutoCommands?.OnConnect ?? []);
-        envVars["RCON_CMDS_ON_DISCONNECT"] = string.Join("\n", server.Spec.AutoCommands?.OnDisconnect ?? []);
-        envVars["RCON_CMDS_FIRST_CONNECT"] = string.Join("\n", server.Spec.AutoCommands?.OnFirstConnect ?? []);
-        envVars["RCON_CMDS_LAST_DISCONNECT"] = string.Join("\n", server.Spec.AutoCommands?.OnLastDisconnect ?? []);
+        envVars["RCON_CMDS_ON_CONNECT"] = string.Join(
+            "\n",
+            server.Spec.AutoCommands?.OnConnect ?? []
+        );
+        envVars["RCON_CMDS_ON_DISCONNECT"] = string.Join(
+            "\n",
+            server.Spec.AutoCommands?.OnDisconnect ?? []
+        );
+        envVars["RCON_CMDS_FIRST_CONNECT"] = string.Join(
+            "\n",
+            server.Spec.AutoCommands?.OnFirstConnect ?? []
+        );
+        envVars["RCON_CMDS_LAST_DISCONNECT"] = string.Join(
+            "\n",
+            server.Spec.AutoCommands?.OnLastDisconnect ?? []
+        );
         envVars["ICON"] = server.Spec.Content?.IconUrl;
         envVars["PACKWIZ_URL"] = server.Spec.Content?.PackwizUrl;
-        envVars["PLUGINS"] = string.Join(",", server.Spec.Content?.Plugins?.Select(p => p.Url) ?? []);
+        envVars["PLUGINS"] = string.Join(
+            ",",
+            server.Spec.Content?.Plugins?.Select(p => p.Url) ?? []
+        );
         envVars["MODS"] = string.Join(",", server.Spec.Content?.Mods?.Select(p => p.Url) ?? []);
         envVars["MODPACK"] = server.Spec.Content?.ModPackUrl;
-        envVars["MODRINTH_PROJECTS"] = string.Join(",", server.Spec.Content?.Modrinth?.Projects ?? []);
-        envVars["CURSEFORGE_FILES"] = string.Join(",", server.Spec.Content?.CurseForge?.Files ?? []);
+        envVars["MODRINTH_PROJECTS"] = string.Join(
+            ",",
+            server.Spec.Content?.Modrinth?.Projects ?? []
+        );
+        envVars["CURSEFORGE_FILES"] = string.Join(
+            ",",
+            server.Spec.Content?.CurseForge?.Files ?? []
+        );
         envVars["CF_PAGE_URL"] = server.Spec.Content?.CurseForge?.ModPackUrl;
         envVars["SPIGET_RESOURCES"] = string.Join(",", server.Spec.Content?.SpigotResources ?? []);
         envVars["RESOURCE_PACK"] = server.Spec.Content?.ResourcePack?.Url;
@@ -778,8 +1048,10 @@ public sealed class ServerController(
 
         if (server.Spec.Properties is { Count: > 0 })
         {
-            envVars["CUSTOM_SERVER_PROPERTIES"] =
-                string.Join("\n", server.Spec.Properties.Select(p => $"{p.Key}={p.Value}") ?? []);
+            envVars["CUSTOM_SERVER_PROPERTIES"] = string.Join(
+                "\n",
+                server.Spec.Properties.Select(p => $"{p.Key}={p.Value}") ?? []
+            );
         }
 
         if (server.Spec.AutoSleep is { Mode: null or AutoSleepMode.Pause })
@@ -848,6 +1120,9 @@ public sealed class ServerController(
         service.Metadata.Name = server.Name();
         service.Metadata.NamespaceProperty = server.Namespace();
         service.Metadata.Annotations = server.Spec.Service?.Annotations;
+        // Lets the ServerServiceController find the server of this Service. Not a Pod label, so the Service does not
+        // select itself or anything else by it.
+        service.SetLabel("kobblestone.io/server", server.Name());
 
         service.Spec.Type = server.Spec.Service?.Type ?? "ClusterIP";
         service.Spec.Selector = PodLabels(server);
@@ -859,18 +1134,20 @@ public sealed class ServerController(
             {
                 Name = "minecraft",
                 Port = server.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort,
-                TargetPort = MinecraftConstants.DefaultMinecraftPort
-            }
+                TargetPort = MinecraftConstants.DefaultMinecraftPort,
+            },
         ];
 
         if (server.Spec.Rcon?.Disabled is not true)
         {
-            service.Spec.Ports.Add(new V1ServicePort
-            {
-                Name = "rcon",
-                Port = server.Spec.Rcon?.Port ?? MinecraftConstants.DefaultRconPort,
-                TargetPort = MinecraftConstants.DefaultRconPort
-            });
+            service.Spec.Ports.Add(
+                new V1ServicePort
+                {
+                    Name = "rcon",
+                    Port = server.Spec.Rcon?.Port ?? MinecraftConstants.DefaultRconPort,
+                    TargetPort = MinecraftConstants.DefaultRconPort,
+                }
+            );
         }
 
         service.WithOwnerReference(server);

@@ -62,17 +62,26 @@ spec:
                 nullable: true
                 properties:
                   activeDeadlineSeconds:
+                    description: |-
+                      Maximum duration of the backup `Job` in seconds. When it is exceeded, the `Job` and thus the `Backup` fails.
+
+                      Default is no limit.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/batch/job-v1/#JobSpec
                     format: int32
                     nullable: true
                     type: integer
                   image:
+                    description: |-
+                      Custom image for online backups of running servers.
+
+                      Default is `itzg/mc-backup`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
                     nullable: true
                     type: string
                   resources:
+                    description: Compute resources of the backup `Pod`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                     nullable: true
@@ -96,6 +105,7 @@ spec:
                         type: object
                     type: object
                   tolerations:
+                    description: Tolerations of the backup `Pod`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                     items:
@@ -199,6 +209,11 @@ spec:
                 type: string
               repo:
                 description: Name of the target `BackupRepo`.
+                nullable: true
+                type: string
+              startedAt:
+                description: Time at which the `Job` of the `Backup` was created.
+                format: date-time
                 nullable: true
                 type: string
               target:

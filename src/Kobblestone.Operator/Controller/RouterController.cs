@@ -2,6 +2,7 @@
 
 using Kobblestone.Operator.Constants;
 using Kobblestone.Operator.Entities.V1Alpha1;
+using Kobblestone.Operator.Utils;
 
 using KubeOps.Abstractions.Entities;
 using KubeOps.Abstractions.Rbac;
@@ -25,11 +26,15 @@ public sealed class RouterController(IKubernetesClient client) : IEntityControll
     public async Task<ReconciliationResult<V1Alpha1Router>> ReconcileAsync(V1Alpha1Router entity,
         CancellationToken cancellationToken)
     {
-        await EnsureServiceAsync(entity, cancellationToken).ConfigureAwait(false);
+        var service = await EnsureServiceAsync(entity, cancellationToken).ConfigureAwait(false);
 
         await EnsureTcpRouteAsync(entity, cancellationToken).ConfigureAwait(false);
 
         await EnsureDeploymentAsync(entity, cancellationToken).ConfigureAwait(false);
+
+        // The RouterServiceController queues this router whenever the Service changes, e.g. when its load balancer
+        // got an external IP.
+        entity.Status.Address = service.GetIpAddress();
 
         entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
 
@@ -184,7 +189,7 @@ public sealed class RouterController(IKubernetesClient client) : IEntityControll
                     new V1Container
                     {
                         Name = "router",
-                        Image = router.Spec.Pod?.Image ?? "itzg/mc-router:1.46.2",
+                        Image = router.Spec.Pod?.Image ?? ContainerImages.Router,
                         ImagePullPolicy = router.Spec.Pod?.ImagePullPolicy,
                         Args = new List<string> { "--api-binding", ":8080" }
                             .Concat(router.Spec.Networking?.ProxyProtocol?.Receive is true

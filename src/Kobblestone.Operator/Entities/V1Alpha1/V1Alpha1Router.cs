@@ -84,7 +84,7 @@ public sealed class
     public record V1Alpha1RouterStatus
     {
         [Description("""
-                     IP address of the `Router`.
+                     IP address of the `Router`'s `Service`. External addresses are preferred: the IP assigned by a load balancer, then the first of `externalIPs`, then the cluster IP.
                      """)]
         [AdditionalPrinterColumn(name: "Address")]
         public string? Address { get; set; }
@@ -102,6 +102,11 @@ public sealed class
 
     public record V1Alpha1RouterService
     {
+        [Description("""
+                     Type of the `Router`'s `Service`, e.g. `ClusterIP` or `LoadBalancer`.
+
+                     Default is `ClusterIP`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec")]
         public string? Type { get; set; }
 
@@ -114,12 +119,21 @@ public sealed class
         [RangeMaximum(ushort.MaxValue)]
         public int? Port { get; set; }
 
+        [Description("""
+                     External traffic policy of the `Router`'s `Service`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec")]
         public string? ExternalTrafficPolicy { get; set; }
 
+        [Description("""
+                     IP family policy of the `Router`'s `Service`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec")]
         public string? IpFamilyPolicy { get; set; }
 
+        [Description("""
+                     Annotations added to the `Router`'s `Service`, e.g. to configure a load balancer.
+                     """)]
         [ExternalDocs(
             "https://kubernetes.io/docs/reference/kubernetes-api/definitions/object-meta-v1-meta/#ObjectMeta")]
         public IDictionary<string, string>? Annotations { get; set; }
@@ -212,18 +226,33 @@ public sealed class
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container")]
         public string? Image { get; set; }
 
+        [Description("""
+                     Image pull policy of the router container.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container")]
         public string? ImagePullPolicy { get; set; }
 
+        [Description("""
+                     Affinity of the router `Pod`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Affinity")]
         public V1Affinity? Affinity { get; set; }
 
+        [Description("""
+                     Name of the node the router `Pod` is scheduled on.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
         public string? NodeName { get; set; }
 
+        [Description("""
+                     Node selector of the router `Pod`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
         public IDictionary<string, string>? NodeSelector { get; set; }
 
+        [Description("""
+                     Tolerations of the router `Pod`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
         public IList<V1Toleration>? Tolerations { get; set; }
     }

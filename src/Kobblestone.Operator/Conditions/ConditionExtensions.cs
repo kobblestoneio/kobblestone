@@ -79,7 +79,8 @@ public static class ConditionExtensions
             {
                 entity.Status.Conditions.Add(condition with
                 {
-                    LastTransitionTime = lastTransitionTime, ObservedGeneration = generation
+                    LastTransitionTime = lastTransitionTime,
+                    ObservedGeneration = generation
                 });
 
                 return;

@@ -14,7 +14,7 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - description: IP address of the `Router`.
+    - description: "IP address of the `Router`'s `Service`. External addresses are preferred: the IP assigned by a load balancer, then the first of `externalIPs`, then the cluster IP."
       jsonPath: .status.address
       name: Address
       priority: 0
@@ -126,6 +126,7 @@ spec:
                 nullable: true
                 properties:
                   affinity:
+                    description: Affinity of the router `Pod`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Affinity
                     nullable: true
@@ -466,11 +467,13 @@ spec:
                     nullable: true
                     type: string
                   imagePullPolicy:
+                    description: Image pull policy of the router container.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
                     nullable: true
                     type: string
                   nodeName:
+                    description: Name of the node the router `Pod` is scheduled on.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                     nullable: true
@@ -478,11 +481,13 @@ spec:
                   nodeSelector:
                     additionalProperties:
                       type: string
+                    description: Node selector of the router `Pod`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                     nullable: true
                     type: object
                   tolerations:
+                    description: Tolerations of the router `Pod`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                     items:
@@ -547,16 +552,19 @@ spec:
                   annotations:
                     additionalProperties:
                       type: string
+                    description: Annotations added to the `Router`'s `Service`, e.g. to configure a load balancer.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/definitions/object-meta-v1-meta/#ObjectMeta
                     nullable: true
                     type: object
                   externalTrafficPolicy:
+                    description: External traffic policy of the `Router`'s `Service`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
                     nullable: true
                     type: string
                   ipFamilyPolicy:
+                    description: IP family policy of the `Router`'s `Service`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
                     nullable: true
@@ -574,6 +582,10 @@ spec:
                     nullable: true
                     type: integer
                   type:
+                    description: |-
+                      Type of the `Router`'s `Service`, e.g. `ClusterIP` or `LoadBalancer`.
+
+                      Default is `ClusterIP`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
                     nullable: true
@@ -638,7 +650,7 @@ spec:
           status:
             properties:
               address:
-                description: IP address of the `Router`.
+                description: "IP address of the `Router`'s `Service`. External addresses are preferred: the IP assigned by a load balancer, then the first of `externalIPs`, then the cluster IP."
                 nullable: true
                 type: string
               conditions:

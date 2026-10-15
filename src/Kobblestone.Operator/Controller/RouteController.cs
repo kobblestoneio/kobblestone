@@ -6,6 +6,7 @@ using Kobblestone.Operator.Finalizer;
 using Kobblestone.Operator.Services;
 using Kobblestone.Operator.Utils;
 
+using KubeOps.Abstractions.Events;
 using KubeOps.Abstractions.Rbac;
 using KubeOps.Abstractions.Reconciliation;
 using KubeOps.Abstractions.Reconciliation.Controller;
@@ -24,7 +25,8 @@ namespace Kobblestone.Operator.Controller;
 public sealed class RouteController(
     IKubernetesClient client,
     IRouterApi routerApi,
-    EntityFinalizerAttacher<RouteFinalizer, V1Alpha1Route> finalizer) : IEntityController<V1Alpha1Route>
+    EntityFinalizerAttacher<RouteFinalizer, V1Alpha1Route> finalizer,
+    EventPublisher emitEvent) : IEntityController<V1Alpha1Route>
 {
     public async Task<ReconciliationResult<V1Alpha1Route>> ReconcileAsync(V1Alpha1Route entity,
         CancellationToken cancellationToken)
@@ -51,12 +53,22 @@ public sealed class RouteController(
 
         if (router is null)
         {
-            return ReconciliationResult<V1Alpha1Route>.Failure(entity, "Router not found");
+            await emitEvent(entity,
+                "RouterNotFound",
+                $"Router {routerName} not found.",
+                EventType.Warning, cancellationToken).ConfigureAwait(false);
+
+            return ReconciliationResult<V1Alpha1Route>.Success(entity, TimeSpan.FromSeconds(10));
         }
 
         if (!WildcardUtils.IsAllowedHost(router.Spec.Hostnames ?? [], entity.Spec.Hostname))
         {
-            return ReconciliationResult<V1Alpha1Route>.Failure(entity, "Route hostname not accepted by router");
+            await emitEvent(entity,
+                "HostnameNotAccepted",
+                $"Hostname {entity.Spec.Hostname} is not accepted by router {routerName}.",
+                EventType.Warning, cancellationToken).ConfigureAwait(false);
+
+            return ReconciliationResult<V1Alpha1Route>.Success(entity, TimeSpan.FromSeconds(30));
         }
 
         // Uninstall route on the previous router
@@ -85,9 +97,13 @@ public sealed class RouteController(
 
         if (backend is null)
         {
-            return ReconciliationResult<V1Alpha1Route>.Failure(entity,
-                "Route cannot be installed due to missing backend",
-                requeueAfter: TimeSpan.FromSeconds(10));
+            await emitEvent(entity,
+                "BackendNotFound",
+                $"Route cannot be installed because its backend {entity.Spec.BackendRef.Kind ?? "Server"} " +
+                $"{entity.Spec.BackendRef.Name} was not found.",
+                EventType.Warning, cancellationToken).ConfigureAwait(false);
+
+            return ReconciliationResult<V1Alpha1Route>.Success(entity, TimeSpan.FromSeconds(10));
         }
 
         var routerPods = await client.ListAsync<V1Pod>(entity.Namespace(),

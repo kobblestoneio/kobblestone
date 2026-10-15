@@ -14,35 +14,63 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.phase
+    - description: |-
+        Current phase of the `Server`.
+
+        Values:
+        - `Stopped`: The server is stopped.
+        - `Starting`: The server is starting.
+        - `Running`: The server is running and ready for players.
+        - `Stopping`: The server is stopping.
+        - `Hibernating`: The server was stopped by auto-sleep and is started again when a player connects.
+      jsonPath: .status.phase
       name: Status
       priority: 0
       type: string
-    - jsonPath: .status.type
+    - description: Type of the server software, see `spec.type`.
+      jsonPath: .status.type
       name: Type
       priority: 0
       type: string
-    - jsonPath: .spec.version
-      name: Version
+    - description: "IP address of the `Server`'s `Service`. External addresses are preferred: the IP assigned by a load balancer, then the first of `externalIPs`, then the cluster IP."
+      jsonPath: .status.address
+      name: Address
       priority: 0
       type: string
-    - jsonPath: .spec.route.hostname
-      name: Host
+    - description: |-
+        Minecraft version of the server.
+
+        Use `LATEST` for the latest release or `SNAPSHOT` for the latest snapshot.
+      jsonPath: .spec.version
+      name: Version
       priority: 0
       type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: |-
+          A `Server` runs a single Minecraft server.
+
+          The server is based on the [itzg/minecraft-server](https://docker-minecraft-server.readthedocs.io/) image and runs as a `StatefulSet` with one replica.
+          The operator also manages its `Service`, RCON `Secret` and `NetworkPolicy` and, if configured, its `PersistentVolumeClaim`, `Route` and `TCPRoute`.
+
+          Servers can be backed up with `Backup`s and restored with `Restore`s if they have storage configured.
         properties:
           spec:
             properties:
               access:
+                description: Configures the whitelist and the operators of the server.
                 nullable: true
                 properties:
                   ops:
+                    description: Configures the operators of the server.
                     nullable: true
                     properties:
                       users:
+                        description: |-
+                          Players with operator permissions, as usernames or UUIDs.
+
+                          **Note**: The operators are synchronized: players not listed here lose their operator permissions.
                         items:
                           type: string
                         nullable: true
@@ -50,12 +78,21 @@ spec:
                         x-kubernetes-list-type: set
                     type: object
                   whitelist:
+                    description: Configures the whitelist. Only whitelisted players can join.
                     nullable: true
                     properties:
                       enforce:
+                        description: |-
+                          If set to `true`, online players who are not whitelisted are kicked when the whitelist changes.
+
+                          Default is `false`.
                         nullable: true
                         type: boolean
                       users:
+                        description: |-
+                          Players allowed to join, as usernames or UUIDs.
+
+                          **Note**: The whitelist is synchronized: players not listed here are removed from it.
                         items:
                           type: string
                         nullable: true
@@ -64,38 +101,55 @@ spec:
                     type: object
                 type: object
               autoCommands:
+                description: Commands executed via RCON on certain events. Each entry is a single command.
                 nullable: true
                 properties:
                   onConnect:
+                    description: Commands executed when a player connects.
                     items:
                       type: string
                     nullable: true
                     type: array
                   onDisconnect:
+                    description: Commands executed when a player disconnects.
                     items:
                       type: string
                     nullable: true
                     type: array
                   onFirstConnect:
+                    description: Commands executed when the first player connects to the empty server.
                     items:
                       type: string
                     nullable: true
                     type: array
                   onLastDisconnect:
+                    description: Commands executed when the last player disconnects.
                     items:
                       type: string
                     nullable: true
                     type: array
                   onStartup:
+                    description: Commands executed once the server has started.
                     items:
                       type: string
                     nullable: true
                     type: array
                 type: object
               autoSleep:
+                description: Configures putting the server to sleep while no players are online.
                 nullable: true
                 properties:
                   mode:
+                    description: |-
+                      How the server sleeps while no players are online.
+
+                      Default is `Pause`.
+
+                      Values:
+                      - `None`: The server never sleeps.
+                      - `Pause`: The server pauses ticking while it is empty (requires Minecraft 1.21.2 or later).
+                      - `Hibernate`: The server is stopped while it is empty and started again when a player connects through a `Router`.
+                      - `LegacyPause`: The server process is paused while it is empty, using the [autopause](https://docker-minecraft-server.readthedocs.io/en/latest/misc/autopause-autostop/autopause/) feature of the image. For older versions.
                     enum:
                     - None
                     - Pause
@@ -104,6 +158,10 @@ spec:
                     nullable: true
                     type: string
                   timeoutSeconds:
+                    description: |-
+                      Time in seconds without players after which the server goes to sleep.
+
+                      Default is `60`.
                     exclusiveMinimum: false
                     format: int32
                     minimum: 1.0
@@ -111,12 +169,15 @@ spec:
                     type: integer
                 type: object
               content:
+                description: Configures plugins, mods, modpacks and other content installed on startup.
                 nullable: true
                 properties:
                   curseForge:
+                    description: Configures content from [CurseForge](https://www.curseforge.com/).
                     nullable: true
                     properties:
                       apiKeySecretRef:
+                        description: Reference to a key of a `Secret` containing a CurseForge API key. Required to download from CurseForge.
                         nullable: true
                         properties:
                           key:
@@ -130,25 +191,31 @@ spec:
                         - name
                         type: object
                       files:
+                        description: CurseForge projects or files to install, by slug, ID or URL.
                         items:
                           type: string
                         nullable: true
                         type: array
                         x-kubernetes-list-type: set
                       modPackUrl:
+                        description: URL of the CurseForge page of a modpack to install. Requires the server type `AutoCurseforge`.
                         nullable: true
                         type: string
                     type: object
                   iconUrl:
+                    description: URL of an image used as the server icon.
                     nullable: true
                     type: string
                   modPackUrl:
+                    description: URL of a modpack ZIP file to install.
                     nullable: true
                     type: string
                   modrinth:
+                    description: Configures content from [Modrinth](https://modrinth.com/).
                     nullable: true
                     properties:
                       projects:
+                        description: Modrinth projects to install, by slug or ID.
                         items:
                           type: string
                         nullable: true
@@ -156,9 +223,11 @@ spec:
                         x-kubernetes-list-type: set
                     type: object
                   mods:
+                    description: Mods to install, for modded server types (e.g. `Fabric`).
                     items:
                       properties:
                         url:
+                          description: URL of the mod `.jar` file.
                           type: string
                       required:
                       - url
@@ -166,12 +235,15 @@ spec:
                     nullable: true
                     type: array
                   packwizUrl:
+                    description: URL of a [packwiz](https://packwiz.infra.link/) `pack.toml` to install.
                     nullable: true
                     type: string
                   plugins:
+                    description: Plugins to install, for server types that support plugins (e.g. `Paper`).
                     items:
                       properties:
                         url:
+                          description: URL of the plugin `.jar` file.
                           type: string
                       required:
                       - url
@@ -179,20 +251,28 @@ spec:
                     nullable: true
                     type: array
                   resourcePack:
+                    description: Configures a resource pack that players are prompted to download.
                     nullable: true
                     properties:
                       enforce:
+                        description: |-
+                          If set to `true`, players who decline the resource pack are disconnected.
+
+                          Default is `false`.
                         nullable: true
                         type: boolean
                       sha1:
+                        description: SHA-1 checksum of the resource pack. Lets clients cache the pack.
                         nullable: true
                         type: string
                       url:
+                        description: URL of the resource pack ZIP file.
                         type: string
                     required:
                     - url
                     type: object
                   spigotResources:
+                    description: IDs of [Spigot resources](https://www.spigotmc.org/resources/) to install.
                     items:
                       type: string
                     nullable: true
@@ -200,8 +280,10 @@ spec:
                     x-kubernetes-list-type: set
                 type: object
               eula:
+                description: Whether you accept the [Minecraft EULA](https://www.minecraft.net/en-us/eula). The server does not start unless this is `true`.
                 type: boolean
               jvm:
+                description: Configures the JVM of the server.
                 nullable: true
                 properties:
                   memory:
@@ -247,7 +329,7 @@ spec:
 
                       Values:
                       - `Immediate`: Changes to `spec` are rolled out immediately. For example, if you update `spec.version`, the server will be restarted.
-                      - `OnRestart`: Changes to `spec` are rolled out when the server is restarted. **Note**: This does not apply to restarts caused by the server crashing.
+                      - `Manual`: Changes to `spec` are rolled out when the server `Pod` is recreated, e.g. when the server is stopped and started again or the `Pod` is deleted. **Note**: This does not apply to restarts of the server container after a crash.
                     enum:
                     - Immediate
                     - Manual
@@ -255,6 +337,10 @@ spec:
                     type: string
                 type: object
               networkPolicy:
+                description: |-
+                  Configures the `NetworkPolicy` of the server.
+
+                  By default, it only allows Minecraft traffic from `Router`s, `Network`s and `Bot`s, RCON traffic from `Backup`s, and all traffic to the `Service` if it is of type `LoadBalancer`.
                 nullable: true
                 properties:
                   disabled:
@@ -340,12 +426,20 @@ spec:
                     type: array
                 type: object
               offline:
+                description: |-
+                  If set to `true`, the server runs in offline mode: player accounts are not verified.
+
+                  Default is `false`.
+
+                  **Warning**: Only use this for servers behind a proxy that verifies players (e.g. a `Network`), never for servers that players can reach directly.
                 nullable: true
                 type: boolean
               pod:
+                description: Configures the server `Pod`.
                 nullable: true
                 properties:
                   affinity:
+                    description: Affinity of the server `Pod`.
                     nullable: true
                     properties:
                       nodeAffinity:
@@ -678,6 +772,10 @@ spec:
                         type: object
                     type: object
                   env:
+                    description: |-
+                      Additional environment variables of the server container.
+
+                      Can be used to set any [option of the image](https://docker-minecraft-server.readthedocs.io/en/latest/variables/) that is not covered by the `Server` spec.
                     items:
                       properties:
                         name:
@@ -739,20 +837,28 @@ spec:
                     nullable: true
                     type: array
                   image:
+                    description: |-
+                      Custom image for the server container.
+
+                      Default is `itzg/minecraft-server` with the Java version of `spec.jvm.version`.
                     nullable: true
                     type: string
                   imagePullPolicy:
+                    description: Image pull policy of the server container.
                     nullable: true
                     type: string
                   nodeName:
+                    description: Name of the node the server `Pod` is scheduled on.
                     nullable: true
                     type: string
                   nodeSelector:
                     additionalProperties:
                       type: string
+                    description: Node selector of the server `Pod`.
                     nullable: true
                     type: object
                   tolerations:
+                    description: Tolerations of the server `Pod`.
                     items:
                       properties:
                         effect:
@@ -771,8 +877,13 @@ spec:
                     nullable: true
                     type: array
                   volumeMounts:
+                    description: Additional volume mounts of the server container.
                     items:
                       properties:
+                        bindMountOptions:
+                          items:
+                            type: string
+                          type: array
                         mountPath:
                           type: string
                         mountPropagation:
@@ -792,6 +903,7 @@ spec:
                     nullable: true
                     type: array
                   volumes:
+                    description: Additional volumes of the server `Pod`.
                     items:
                       properties:
                         awsElasticBlockStore:
@@ -876,6 +988,10 @@ spec:
                               format: int32
                               nullable: true
                               type: integer
+                            defaultUser:
+                              format: int64
+                              nullable: true
+                              type: integer
                             items:
                               items:
                                 properties:
@@ -887,6 +1003,10 @@ spec:
                                     type: integer
                                   path:
                                     type: string
+                                  user:
+                                    format: int64
+                                    nullable: true
+                                    type: integer
                                 type: object
                               type: array
                             name:
@@ -920,6 +1040,10 @@ spec:
                               format: int32
                               nullable: true
                               type: integer
+                            defaultUser:
+                              format: int64
+                              nullable: true
+                              type: integer
                             items:
                               items:
                                 properties:
@@ -945,6 +1069,10 @@ spec:
                                       resource:
                                         type: string
                                     type: object
+                                  user:
+                                    format: int64
+                                    nullable: true
+                                    type: integer
                                 type: object
                               type: array
                           type: object
@@ -952,6 +1080,10 @@ spec:
                           properties:
                             medium:
                               type: string
+                            mode:
+                              format: int32
+                              nullable: true
+                              type: integer
                             sizeLimit:
                               type: string
                           type: object
@@ -1199,6 +1331,10 @@ spec:
                               format: int32
                               nullable: true
                               type: integer
+                            defaultUser:
+                              format: int64
+                              nullable: true
+                              type: integer
                             sources:
                               items:
                                 properties:
@@ -1233,6 +1369,10 @@ spec:
                                         type: string
                                       signerName:
                                         type: string
+                                      user:
+                                        format: int64
+                                        nullable: true
+                                        type: integer
                                     type: object
                                   configMap:
                                     properties:
@@ -1247,6 +1387,10 @@ spec:
                                               type: integer
                                             path:
                                               type: string
+                                            user:
+                                              format: int64
+                                              nullable: true
+                                              type: integer
                                           type: object
                                         type: array
                                       name:
@@ -1282,6 +1426,10 @@ spec:
                                                 resource:
                                                   type: string
                                               type: object
+                                            user:
+                                              format: int64
+                                              nullable: true
+                                              type: integer
                                           type: object
                                         type: array
                                     type: object
@@ -1301,6 +1449,10 @@ spec:
                                         type: integer
                                       signerName:
                                         type: string
+                                      user:
+                                        format: int64
+                                        nullable: true
+                                        type: integer
                                       userAnnotations:
                                         additionalProperties:
                                           type: string
@@ -1319,6 +1471,10 @@ spec:
                                               type: integer
                                             path:
                                               type: string
+                                            user:
+                                              format: int64
+                                              nullable: true
+                                              type: integer
                                           type: object
                                         type: array
                                       name:
@@ -1337,6 +1493,10 @@ spec:
                                         type: integer
                                       path:
                                         type: string
+                                      user:
+                                        format: int64
+                                        nullable: true
+                                        type: integer
                                     type: object
                                 type: object
                               type: array
@@ -1416,6 +1576,10 @@ spec:
                               format: int32
                               nullable: true
                               type: integer
+                            defaultUser:
+                              format: int64
+                              nullable: true
+                              type: integer
                             items:
                               items:
                                 properties:
@@ -1427,6 +1591,10 @@ spec:
                                     type: integer
                                   path:
                                     type: string
+                                  user:
+                                    format: int64
+                                    nullable: true
+                                    type: integer
                                 type: object
                               type: array
                             optional:
@@ -1470,15 +1638,35 @@ spec:
               properties:
                 additionalProperties:
                   type: string
+                description: |-
+                  Additional entries for `server.properties`.
+
+                  See [server.properties](https://minecraft.wiki/w/Server.properties) for available properties.
                 nullable: true
                 type: object
               rcon:
+                description: |-
+                  Configures RCON, the remote console of the server.
+
+                  RCON is required for `Command`s, `CommandGroup`s, `autoCommands` and online `Backup`s.
                 nullable: true
                 properties:
                   disabled:
+                    description: |-
+                      If set to `true`, RCON is disabled.
+
+                      Default is `false`.
+
+                      **Note**: `Command`s, `CommandGroup`s, `autoCommands` and online `Backup`s require RCON.
                     nullable: true
                     type: boolean
                   passwordSecretRef:
+                    description: |-
+                      Reference to a key of a `Secret` containing the RCON password.
+
+                      If not set, a random password is generated.
+
+                      **Note**: Only read when the server's own `Secret` is created.
                     nullable: true
                     properties:
                       key:
@@ -1492,11 +1680,16 @@ spec:
                     - name
                     type: object
                   port:
+                    description: |-
+                      Port of RCON on the server and its `Service`.
+
+                      Default is `25575`.
                     format: int32
                     nullable: true
                     type: integer
                 type: object
               resources:
+                description: Compute resources of the server container.
                 nullable: true
                 properties:
                   claims:
@@ -1518,11 +1711,17 @@ spec:
                     type: object
                 type: object
               route:
+                description: |-
+                  Configures a `Route` that makes the server reachable through a `Router` under a hostname.
+
+                  Removing it deletes the `Route`.
                 nullable: true
                 properties:
                   hostname:
+                    description: Hostname under which the server is reachable through the `Router`.
                     type: string
                   parentRef:
+                    description: Reference to the `Router` the `Route` is attached to.
                     properties:
                       name:
                         type: string
@@ -1532,39 +1731,79 @@ spec:
                 - parentRef
                 type: object
               service:
+                description: Configures the `Service` of the server.
                 nullable: true
                 properties:
                   annotations:
                     additionalProperties:
                       type: string
+                    description: Annotations added to the server's `Service`, e.g. to configure a load balancer.
                     nullable: true
                     type: object
                   externalTrafficPolicy:
+                    description: External traffic policy of the server's `Service`.
                     nullable: true
                     type: string
                   ipFamilyPolicy:
+                    description: IP family policy of the server's `Service`.
                     nullable: true
                     type: string
                   port:
+                    description: |-
+                      Port on the `Service` that exposes Minecraft.
+
+                      Default is `25565`.
                     format: int32
                     nullable: true
                     type: integer
                   type:
+                    description: |-
+                      Type of the server's `Service`, e.g. `ClusterIP` or `LoadBalancer`.
+
+                      Default is `ClusterIP`.
+
+                      **Warning**: With `LoadBalancer`, the RCON port is reachable from anywhere as well, unless RCON is disabled.
                     nullable: true
                     type: string
                 type: object
               state:
+                description: |-
+                  Desired state of the `Server`.
+
+                  Default is `Running`.
+
+                  Values:
+                  - `Running`: The server is started.
+                  - `Stopped`: The server is stopped. Its data is kept.
+
+                  **Note**: The server is kept stopped while a `Restore` or an offline `Backup` of it is running.
                 enum:
                 - Stopped
                 - Running
                 nullable: true
                 type: string
               storage:
+                description: |-
+                  Configures a persistent volume for the server's data (worlds, configuration, ...).
+
+                  Without storage, all data is lost when the server `Pod` is recreated, and `Backup`s and `Restore`s are not supported.
+
+                  **Warning**: Removing `storage` deletes the server's `PersistentVolumeClaim` and thus its data.
                 nullable: true
                 properties:
                   size:
+                    description: |-
+                      Size of the `PersistentVolumeClaim`, e.g. `10Gi`.
+
+                      **Note**: Increasing the size requires a storage class that supports volume expansion.
                     type: string
                   storageClassName:
+                    description: |-
+                      Storage class of the `PersistentVolumeClaim`.
+
+                      Default is the default storage class of the cluster.
+
+                      **Note**: Only applied when the claim is created.
                     nullable: true
                     type: string
                 required:
@@ -1605,20 +1844,35 @@ spec:
                 title: Gateway API
                 type: object
               timeouts:
+                description: Configures the health checks of the server.
                 nullable: true
                 properties:
                   maxStartupTimeSeconds:
+                    description: |-
+                      Maximum time in seconds the server may take to start before it is restarted.
+
+                      Default is `360`. Must be a multiple of `5`.
                     format: int32
                     multipleOf: 5.0
                     nullable: true
                     type: integer
                   maxUnavailabilityTimeSeconds:
+                    description: |-
+                      Maximum time in seconds a started server may be unresponsive before it is restarted.
+
+                      Default is `15`. Must be a multiple of `5`.
                     format: int32
                     multipleOf: 5.0
                     nullable: true
                     type: integer
                 type: object
               type:
+                description: |-
+                  Type of the server software, e.g. a mod loader or plugin platform.
+
+                  Default is `Vanilla`.
+
+                  See [Server types](https://docker-minecraft-server.readthedocs.io/en/latest/types-and-platforms/) for details on each type.
                 enum:
                 - Vanilla
                 - Bukkit
@@ -1641,6 +1895,10 @@ spec:
                 nullable: true
                 type: string
               version:
+                description: |-
+                  Minecraft version of the server.
+
+                  Use `LATEST` for the latest release or `SNAPSHOT` for the latest snapshot.
                 type: string
             required:
             - eula
@@ -1649,9 +1907,14 @@ spec:
           status:
             properties:
               address:
+                description: "IP address of the `Server`'s `Service`. External addresses are preferred: the IP assigned by a load balancer, then the first of `externalIPs`, then the cluster IP."
                 nullable: true
                 type: string
               conditions:
+                description: |-
+                  Conditions of the `Server`.
+
+                  Types: `Running`, `Stopped`, `Progressing`, `Hibernating`, `RconAvailable`, `BackupInProgress`, `RestoreInProgress`, `Error`.
                 items:
                   properties:
                     lastTransitionTime:
@@ -1672,6 +1935,15 @@ spec:
                   type: object
                 type: array
               phase:
+                description: |-
+                  Current phase of the `Server`.
+
+                  Values:
+                  - `Stopped`: The server is stopped.
+                  - `Starting`: The server is starting.
+                  - `Running`: The server is running and ready for players.
+                  - `Stopping`: The server is stopping.
+                  - `Hibernating`: The server was stopped by auto-sleep and is started again when a player connects.
                 enum:
                 - Stopped
                 - Running
@@ -1684,6 +1956,7 @@ spec:
                 nullable: true
                 type: boolean
               type:
+                description: Type of the server software, see `spec.type`.
                 enum:
                 - Vanilla
                 - Bukkit

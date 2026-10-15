@@ -1,12 +1,7 @@
 using k8s.Models;
 
 using Kobblestone.Operator.Conditions;
-
-using KubeOps.Abstractions.Builder;
-using KubeOps.Operator;
-
-using Microsoft.Extensions.DependencyInjection.Extensions;
-
+using Kobblestone.Operator.Constants;
 using Kobblestone.Operator.Controller;
 using Kobblestone.Operator.Entities.V1Alpha1;
 using Kobblestone.Operator.Finalizer;
@@ -14,7 +9,11 @@ using Kobblestone.Operator.Services;
 using Kobblestone.Operator.Utils;
 using Kobblestone.Operator.Webhooks;
 
+using KubeOps.Abstractions.Builder;
 using KubeOps.KubernetesClient;
+using KubeOps.Operator;
+
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,6 +27,9 @@ builder.Services
         settings
             .WithName("kobblestone")
             .WithReconcileStrategy(ReconcileStrategy.ByResourceVersion)
+            // Only one operator instance may reconcile at a time. Several controllers rely on this, e.g. the
+            // in-process lock in BackupRepoUsage that prevents two Jobs from claiming the same BackupRepo volume.
+            .WithLeaderElection(LeaderElectionType.Single)
             .WithAutoAttachFinalizers(false))
 #if DEBUG
     .AddCrdInstaller(c =>
@@ -52,6 +54,8 @@ builder.Services
     .AddControllerWithLabelSelector<ServerStatefulSetController, V1StatefulSet, ServerLabelSelector<V1StatefulSet>>()
     .AddControllerWithLabelSelector<RouterPodController, V1Pod, RouterLabelSelector<V1Pod>>()
     .AddControllerWithLabelSelector<RouterServiceController, V1Service, RouterLabelSelector<V1Service>>()
+    .AddControllerWithLabelSelector<ServerServiceController, V1Service, ServerLabelSelector<V1Service>>()
+    .AddControllerWithLabelSelector<NetworkServiceController, V1Service, NetworkLabelSelector<V1Service>>()
     .AddControllerWithLabelSelector<BackupJobController, V1Job, BackupLabelSelector<V1Job>>()
     .AddControllerWithLabelSelector<RestoreJobController, V1Job, RestoreLabelSelector<V1Job>>()
     .AddFinalizer<ServerFinalizer, V1Alpha1Server>("kobblestone.io/deleteServer")
@@ -70,7 +74,7 @@ app.MapPost("/webhooks/proxy/auto-scale/{serverNamespace}/{serverName}",
             return;
         }
 
-        var server = await client.GetAsync<V1Alpha1Server>(serverNamespace, serverName, cancellationToken)
+        var server = await client.GetAsync<V1Alpha1Server>(serverName, serverNamespace, cancellationToken)
             .ConfigureAwait(false);
 
         if (server is not { Spec: { AutoSleep.Mode: AutoSleepMode.Hibernate, State: not ServerState.Stopped } })
@@ -78,16 +82,17 @@ app.MapPost("/webhooks/proxy/auto-scale/{serverNamespace}/{serverName}",
             return;
         }
 
-        if (server.HasCondition(ServerConditions.Hibernating))
+        if (server.HasCondition(ServerConditions.Hibernating) ||
+            server.GetAnnotation(ServerAnnotations.Hibernate) is "true")
         {
             return;
         }
 
-        server.WithCondition(ServerConditions.Hibernating.WithReason("AutoSleep")
-            .WithMessage("Server is hibernating because of player inactivity.")
-            .WithObservedGeneration(server.Generation()));
+        // Only request hibernation. The ServerController is the only writer of the server's status: it records the
+        // request in the Hibernating condition, scales the server down and removes the annotation again.
+        server.SetAnnotation(ServerAnnotations.Hibernate, "true");
 
-        await client.UpdateStatusAsync(server, cancellationToken).ConfigureAwait(false);
+        await client.UpdateAsync(server, cancellationToken).ConfigureAwait(false);
     });
 
 app.Run();

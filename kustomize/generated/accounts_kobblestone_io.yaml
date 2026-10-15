@@ -56,6 +56,7 @@ spec:
                     nullable: true
                     properties:
                       affinity:
+                        description: Affinity of the authorization `Pod`.
                         externalDocs:
                           url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Affinity
                         nullable: true
@@ -390,16 +391,22 @@ spec:
                             type: object
                         type: object
                       image:
+                        description: |-
+                          Custom image for the authorization container.
+
+                          Default is `ghcr.io/kobblestoneio/account-auth`.
                         externalDocs:
                           url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
                         nullable: true
                         type: string
                       imagePullPolicy:
+                        description: Image pull policy of the authorization container.
                         externalDocs:
                           url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
                         nullable: true
                         type: string
                       nodeName:
+                        description: Name of the node the authorization `Pod` is scheduled on.
                         externalDocs:
                           url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                         nullable: true
@@ -407,11 +414,13 @@ spec:
                       nodeSelector:
                         additionalProperties:
                           type: string
+                        description: Node selector of the authorization `Pod`.
                         externalDocs:
                           url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                         nullable: true
                         type: object
                       tolerations:
+                        description: Tolerations of the authorization `Pod`.
                         externalDocs:
                           url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                         items:

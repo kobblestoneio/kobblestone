@@ -37,6 +37,13 @@ rules:
   - persistentvolumeclaims
   verbs:
   - get
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
   - create
   - update
 - apiGroups:
@@ -148,6 +155,13 @@ rules:
   resources:
   - services
   verbs:
+  - watch
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - services
+  verbs:
   - get
   - create
   - update
@@ -167,6 +181,13 @@ rules:
   - get
   - create
   - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - services
+  verbs:
+  - watch
 - apiGroups:
   - apps
   nonResourceURLs: []
@@ -227,8 +248,24 @@ rules:
   - jobs
   verbs:
   - get
+  - list
   - create
-  - update
+- apiGroups:
+  - batch
+  nonResourceURLs: []
+  resources:
+  - jobs
+  verbs:
+  - watch
+- apiGroups:
+  - batch
+  nonResourceURLs: []
+  resources:
+  - jobs
+  verbs:
+  - get
+  - list
+  - create
 - apiGroups:
   - batch
   nonResourceURLs: []
@@ -242,14 +279,7 @@ rules:
   resources:
   - jobs
   verbs:
-  - create
-- apiGroups:
-  - batch
-  nonResourceURLs: []
-  resources:
-  - jobs
-  verbs:
-  - watch
+  - list
 - apiGroups:
   - coordination.k8s.io
   resources:
@@ -307,12 +337,10 @@ rules:
   resources:
   - accounts
   - backuprepos
-  - backups
   - botbehaviors
   - bots
   - commandgroups
   - networks
-  - restores
   - routers
   verbs:
   - get
@@ -334,6 +362,17 @@ rules:
   - get
   - update
   - patch
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - backups
+  - restores
+  - servers
+  verbs:
+  - get
+  - list
+  - watch
+  - update
 - apiGroups:
   - kobblestone.io
   resources:
@@ -372,6 +411,7 @@ rules:
   - commands
   verbs:
   - get
+  - list
   - watch
   - create
   - update
@@ -426,15 +466,6 @@ rules:
   - get
   - update
   - patch
-- apiGroups:
-  - kobblestone.io
-  resources:
-  - servers
-  verbs:
-  - get
-  - list
-  - watch
-  - update
 - apiGroups:
   - kobblestone.io
   resources:

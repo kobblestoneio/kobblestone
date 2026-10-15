@@ -99,6 +99,7 @@ spec:
                 nullable: true
                 properties:
                   affinity:
+                    description: Affinity of the bot `Pod`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Affinity
                     nullable: true
@@ -439,11 +440,13 @@ spec:
                     nullable: true
                     type: string
                   imagePullPolicy:
+                    description: Image pull policy of the bot container.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
                     nullable: true
                     type: string
                   nodeName:
+                    description: Name of the node the bot `Pod` is scheduled on.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                     nullable: true
@@ -451,11 +454,13 @@ spec:
                   nodeSelector:
                     additionalProperties:
                       type: string
+                    description: Node selector of the bot `Pod`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                     nullable: true
                     type: object
                   tolerations:
+                    description: Tolerations of the bot `Pod`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                     items:
@@ -509,16 +514,19 @@ spec:
                   annotations:
                     additionalProperties:
                       type: string
+                    description: Annotations added to the `Bot`'s `Service`, e.g. to configure a load balancer.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/definitions/object-meta-v1-meta/#ObjectMeta
                     nullable: true
                     type: object
                   externalTrafficPolicy:
+                    description: External traffic policy of the `Bot`'s `Service`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
                     nullable: true
                     type: string
                   ipFamilyPolicy:
+                    description: IP family policy of the `Bot`'s `Service`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
                     nullable: true
@@ -532,6 +540,10 @@ spec:
                     nullable: true
                     type: integer
                   type:
+                    description: |-
+                      Type of the `Bot`'s `Service`, e.g. `ClusterIP` or `LoadBalancer`.
+
+                      Default is `ClusterIP`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
                     nullable: true

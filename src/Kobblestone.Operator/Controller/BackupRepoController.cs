@@ -44,7 +44,7 @@ public sealed class BackupRepoController(IKubernetesClient client) : IEntityCont
         {
             pvc = new V1PersistentVolumeClaim
             {
-                Metadata = new V1ObjectMeta { Name = repo.Name(), NamespaceProperty = repo.Namespace() },
+                Metadata = new V1ObjectMeta { Name = spec.Name, NamespaceProperty = repo.Namespace() },
                 Spec = new V1PersistentVolumeClaimSpec
                 {
                     AccessModes = ["ReadWriteOnce"],

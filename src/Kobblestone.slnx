@@ -1,4 +1,8 @@
 <Solution>
+  <Folder Name="/Changelog/">
+    <File Path="../CHANGELOG/CHANGELOG-0.1.md" />
+    <File Path="../CHANGELOG/README.md" />
+  </Folder>
   <Folder Name="/Examples/">
     <File Path="../examples/account.yaml" />
     <File Path="../examples/backup.yaml" />

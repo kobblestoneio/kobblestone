@@ -4,8 +4,10 @@ using Kobblestone.Operator.Conditions;
 using Kobblestone.Operator.Constants;
 using Kobblestone.Operator.Entities.V1Alpha1;
 using Kobblestone.Operator.Finalizer;
+using Kobblestone.Operator.Utils;
 
 using KubeOps.Abstractions.Entities;
+using KubeOps.Abstractions.Events;
 using KubeOps.Abstractions.Rbac;
 using KubeOps.Abstractions.Reconciliation;
 using KubeOps.Abstractions.Reconciliation.Controller;
@@ -14,24 +16,57 @@ using KubeOps.KubernetesClient;
 
 namespace Kobblestone.Operator.Controller;
 
-[EntityRbac(typeof(V1Alpha1Backup), Verbs = RbacVerb.Watch | RbacVerb.Get | RbacVerb.Update)]
+[EntityRbac(typeof(V1Alpha1Backup), Verbs = RbacVerb.Watch | RbacVerb.Get | RbacVerb.List | RbacVerb.Update)]
+[EntityRbac(typeof(V1Alpha1Restore), Verbs = RbacVerb.List)]
 [EntityRbac(typeof(V1Alpha1BackupRepo), Verbs = RbacVerb.Get)]
-[EntityRbac(typeof(V1Alpha1Server), Verbs = RbacVerb.Get | RbacVerb.Update)]
+[EntityRbac(typeof(V1Alpha1Server), Verbs = RbacVerb.Get)]
+[GenericRbac(Groups = [V1PersistentVolumeClaim.KubeGroup], Resources = [V1PersistentVolumeClaim.KubePluralName],
+    Verbs = RbacVerb.Get)]
 [GenericRbac(Groups = [V1Job.KubeGroup], Resources = [V1Job.KubePluralName],
-    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update)]
+    Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Create)]
 public sealed class BackupController(
     IKubernetesClient client,
-    EntityFinalizerAttacher<BackupFinalizer, V1Alpha1Backup> finalizer) : IEntityController<V1Alpha1Backup>
+    EntityFinalizerAttacher<BackupFinalizer, V1Alpha1Backup> finalizer,
+    EventPublisher emitEvent) : IEntityController<V1Alpha1Backup>
 {
     public async Task<ReconciliationResult<V1Alpha1Backup>> ReconcileAsync(V1Alpha1Backup entity,
         CancellationToken cancellationToken)
     {
-        if (entity.Status.Phase is not BackupPhase.Pending)
+        // A finished backup is never touched again.
+        if (entity.Status.Phase is BackupPhase.Completed or BackupPhase.Failed)
         {
             return ReconciliationResult<V1Alpha1Backup>.Success(entity);
         }
 
         entity = await finalizer(entity, cancellationToken).ConfigureAwait(false);
+
+        var job = await client.GetAsync<V1Job>(entity.Name(), entity.Namespace(), cancellationToken)
+            .ConfigureAwait(false);
+
+        if (job is not null)
+        {
+            if (job.GetLabel(ServerOperations.BackupLabel) != entity.Name())
+            {
+                await emitEvent(entity,
+                    "JobNameConflict",
+                    $"A Job named {entity.Name()} already exists and does not belong to this Backup.",
+                    EventType.Warning, cancellationToken).ConfigureAwait(false);
+
+                return ReconciliationResult<V1Alpha1Backup>.Success(entity, TimeSpan.FromSeconds(10));
+            }
+
+            // The backup was started. Its status follows the Job, the BackupJobController queues this backup
+            // whenever the Job changes.
+            return await SyncStatusWithJobAsync(entity, job, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (entity.Status.StartedAt is not null)
+        {
+            // The backup was started, but its Job is gone before it finished: it was deleted by hand. Fail the backup
+            // instead of creating a new Job for a backup the user evidently wanted to abort.
+            return await UpdateStatusAsync(entity, BackupPhase.Failed, "Job was deleted before it finished.",
+                BackupConditions.Failed.WithReason("JobDeleted"), cancellationToken).ConfigureAwait(false);
+        }
 
         var repo = await client
             .GetAsync<V1Alpha1BackupRepo>(entity.Spec.RepoRef.Name, entity.Namespace(), cancellationToken)
@@ -39,7 +74,12 @@ public sealed class BackupController(
 
         if (repo is null)
         {
-            return ReconciliationResult<V1Alpha1Backup>.Failure(entity, "Repo not found");
+            await emitEvent(entity,
+                "BackupRepoNotFound",
+                $"BackupRepo {entity.Spec.RepoRef.Name} not found.",
+                EventType.Warning, cancellationToken).ConfigureAwait(false);
+
+            return ReconciliationResult<V1Alpha1Backup>.Success(entity, TimeSpan.FromSeconds(10));
         }
 
         var server = await client
@@ -48,58 +88,170 @@ public sealed class BackupController(
 
         if (server is null)
         {
-            return ReconciliationResult<V1Alpha1Backup>.Failure(entity, "Server not found");
+            await emitEvent(entity,
+                "ServerNotFound",
+                $"Server {entity.Spec.TargetRef.Name} not found.",
+                EventType.Warning, cancellationToken).ConfigureAwait(false);
+
+            return ReconciliationResult<V1Alpha1Backup>.Success(entity, TimeSpan.FromSeconds(10));
         }
 
         if (server.Spec.Storage is null)
         {
-            return ReconciliationResult<V1Alpha1Backup>.Failure(entity, "Server has no storage configured");
+            await emitEvent(entity,
+                "ServerHasNoStorage",
+                $"Server {server.Name()} has no storage configured.",
+                EventType.Warning, cancellationToken).ConfigureAwait(false);
+
+            return ReconciliationResult<V1Alpha1Backup>.Success(entity, TimeSpan.FromSeconds(10));
         }
 
         if (!server.HasCondition(ServerConditions.RconAvailable))
         {
-            return ReconciliationResult<V1Alpha1Backup>.Failure(entity,
-                "Server does not have RCON available. Retrying in 5 seconds",
-                requeueAfter: TimeSpan.FromSeconds(5));
+            await emitEvent(entity,
+                "RconNotAvailable",
+                $"RCON not available on server {server.Name()}.",
+                EventType.Warning, cancellationToken).ConfigureAwait(false);
+
+            return ReconciliationResult<V1Alpha1Backup>.Success(entity, TimeSpan.FromSeconds(10));
         }
 
         if (!server.HasAnyCondition(ServerConditions.Running, ServerConditions.Stopped))
         {
-            return ReconciliationResult<V1Alpha1Backup>.Failure(entity,
-                "Server must be stopped or running for backup. Retrying in 5 seconds",
-                requeueAfter: TimeSpan.FromSeconds(5));
+            await emitEvent(entity,
+                "ServerNotReady",
+                $"Server {server.Name()} must be in phase Running or Stopped to be ready for backup.",
+                EventType.Normal, cancellationToken).ConfigureAwait(false);
+
+            return ReconciliationResult<V1Alpha1Backup>.Success(entity, TimeSpan.FromSeconds(10));
         }
 
-        if (server.HasAnyCondition(ServerConditions.BackupInProgress, ServerConditions.RestoreInProgress))
-        {
-            return ReconciliationResult<V1Alpha1Backup>.Failure(entity,
-                "Server already has backup or restore in progress. Retrying in 5 seconds",
-                requeueAfter: TimeSpan.FromSeconds(5));
-        }
-
-        server.WithCondition(ServerConditions.BackupInProgress.WithReason("Backup"));
-
-        server = await client.UpdateStatusAsync(server, cancellationToken).ConfigureAwait(false);
-
-        var job = await client.GetAsync<V1Job>(entity.Name(), entity.Namespace(), cancellationToken)
+        var operations = await client.GetServerOperationsAsync(server.Namespace(), server.Name(), cancellationToken)
             .ConfigureAwait(false);
 
-        if (job is null)
+        if (operations.GetBlocker(ServerOperationKind.Backup, entity.Name()) is { } blocker)
         {
-            job = new V1Job
+            var message = blocker.IsActive
+                ? $"Waiting for {blocker} to finish."
+                : $"Waiting for {blocker}, which was requested earlier.";
+
+            if (entity.Status.Message != message)
             {
-                Metadata = new V1ObjectMeta(), Spec = new V1JobSpec { Template = new V1PodTemplateSpec() }
-            };
+                entity.Status.Message = message;
 
-            ApplyJob(job, entity, server, repo);
+                entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
+            }
 
-            job = await client.CreateAsync(job, cancellationToken).ConfigureAwait(false);
+            await emitEvent(entity,
+                "WaitingForServer",
+                $"Server {server.Name()} is busy. {message}",
+                EventType.Normal, cancellationToken).ConfigureAwait(false);
+
+            return ReconciliationResult<V1Alpha1Backup>.Success(entity, TimeSpan.FromSeconds(10));
         }
-        else
-        {
-            ApplyJob(job, entity, server, repo);
 
-            job = await client.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
+        // Held until the Job has been created, so no other reconcile can claim the repo in between.
+        using var repoLock = await BackupRepoUsage.LockAsync(repo, cancellationToken).ConfigureAwait(false);
+
+        if (await client.FindJobBlockingRepoAsync(repo, cancellationToken).ConfigureAwait(false) is { } repoJob)
+        {
+            var message = $"Waiting for Job {repoJob.Name()} to release BackupRepo {repo.Name()}.";
+
+            if (entity.Status.Message != message)
+            {
+                entity.Status.Message = message;
+
+                entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
+            }
+
+            await emitEvent(entity,
+                "WaitingForBackupRepo",
+                $"BackupRepo {repo.Name()} cannot be mounted by more than one Job at a time. {message}",
+                EventType.Normal, cancellationToken).ConfigureAwait(false);
+
+            return ReconciliationResult<V1Alpha1Backup>.Success(entity, TimeSpan.FromSeconds(10));
+        }
+
+        job = new V1Job { Metadata = new V1ObjectMeta(), Spec = new V1JobSpec { Template = new V1PodTemplateSpec() } };
+
+        ApplyJob(job, entity, server, repo);
+
+        await client.CreateAsync(job, cancellationToken).ConfigureAwait(false);
+
+        // From here on, the BackupJobController queues this backup and its server whenever the Job changes.
+        var before = EntityQueueExtensions.Snapshot(entity.Status);
+
+        entity.Status.StartedAt = DateTime.UtcNow;
+        entity.Status.Repo = entity.Spec.RepoRef.Name;
+        entity.Status.Target = entity.Spec.TargetRef.Name;
+
+        return await UpdateStatusAsync(entity, BackupPhase.Pending, "Backup Job created.",
+            null, cancellationToken, before).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Derives the status of a started backup from its Job.
+    /// </summary>
+    private Task<ReconciliationResult<V1Alpha1Backup>> SyncStatusWithJobAsync(V1Alpha1Backup entity, V1Job job,
+        CancellationToken cancellationToken)
+    {
+        var before = EntityQueueExtensions.Snapshot(entity.Status);
+
+        // Covers Jobs that were created before the backup status could be updated (e.g. the operator restarted).
+        entity.Status.StartedAt ??= job.Metadata.CreationTimestamp ?? DateTime.UtcNow;
+        entity.Status.Repo = entity.Spec.RepoRef.Name;
+        entity.Status.Target = entity.Spec.TargetRef.Name;
+
+        var conditions = job.Status?.Conditions;
+
+        if (conditions?.Any(c => c.Type is "Complete" && c.Status is "True") is true)
+        {
+            return UpdateStatusAsync(entity, BackupPhase.Completed, "Completed successfully.",
+                BackupConditions.Completed, cancellationToken, before);
+        }
+
+        if (conditions?.FirstOrDefault(c => c.Type is "Failed" && c.Status is "True") is { } failed)
+        {
+            return UpdateStatusAsync(entity, BackupPhase.Failed, failed.Message ?? "Job failed.",
+                BackupConditions.Failed.WithReason(failed.Reason ?? "JobFailed"), cancellationToken, before);
+        }
+
+        if (job.Status?.Ready > 0)
+        {
+            return UpdateStatusAsync(entity, BackupPhase.Running, "Actively running.",
+                BackupConditions.Progressing.WithReason("Running").WithMessage("Backup is running."),
+                cancellationToken, before);
+        }
+
+        return UpdateStatusAsync(entity, BackupPhase.Pending, "Waiting for the backup Pod to start.", null,
+            cancellationToken, before);
+    }
+
+    /// <summary>
+    /// Sets phase, message and the condition matching the phase (all other backup conditions are set to false) and
+    /// writes the status, but only if anything changed compared to <paramref name="before"/> (default: the status as
+    /// passed in).
+    /// </summary>
+    private async Task<ReconciliationResult<V1Alpha1Backup>> UpdateStatusAsync(V1Alpha1Backup entity,
+        BackupPhase phase, string message, V1Condition? condition, CancellationToken cancellationToken,
+        string? before = null)
+    {
+        before ??= EntityQueueExtensions.Snapshot(entity.Status);
+
+        entity.Status.Phase = phase;
+        entity.Status.Message = message;
+
+        var conditions = new[]
+        {
+            BackupConditions.Completed.False(), BackupConditions.Failed.False(), BackupConditions.Progressing.False()
+        };
+
+        entity.WithConditions(
+            conditions.Select(c => condition is not null && c.Type == condition.Type ? condition : c));
+
+        if (EntityQueueExtensions.Snapshot(entity.Status) != before)
+        {
+            entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
         }
 
         return ReconciliationResult<V1Alpha1Backup>.Success(entity);
@@ -115,7 +267,23 @@ public sealed class BackupController(
     {
         job.Metadata.Name = backup.Name();
         job.Metadata.NamespaceProperty = backup.Namespace();
-        job.Metadata.EnsureLabels()["kobblestone.io/backup"] = backup.Name();
+        // Online: the server is running and keeps its volume attached. The backup reads the data next to it after
+        // flushing the world via RCON. Offline: the server is stopped (and held stopped by the ServerController while
+        // this Job is active), so the volume is free and the backup can run on any node.
+        var online = server.Status.Phase is ServerPhase.Running;
+
+        var labels = job.Metadata.EnsureLabels();
+        labels[ServerOperations.BackupLabel] = backup.Name();
+        labels[ServerOperations.TargetServerLabel] = server.Name();
+        labels[ServerOperations.BackupModeLabel] =
+            online ? ServerOperations.BackupModeOnline : ServerOperations.BackupModeOffline;
+
+        // Pods do not inherit the labels of their Job. This label is required by the Server's NetworkPolicy to
+        // allow RCON access from the backup Pod.
+        job.Spec.Template.Metadata = new V1ObjectMeta
+        {
+            Labels = new Dictionary<string, string> { { ServerOperations.BackupLabel, backup.Name() } }
+        };
 
         job.Spec.BackoffLimit = 0;
         job.Spec.ActiveDeadlineSeconds = backup.Spec.Job?.ActiveDeadlineSeconds;
@@ -123,7 +291,7 @@ public sealed class BackupController(
         var mcBackupContainer = new V1Container
         {
             Name = "backup",
-            Image = backup.Spec.Job?.Image ?? "itzg/mc-backup:2026.7.3",
+            Image = backup.Spec.Job?.Image ?? ContainerImages.Backup,
             Env = new List<V1EnvVar>
             {
                 new() { Name = "INITIAL_DELAY", Value = "0" },
@@ -152,7 +320,7 @@ public sealed class BackupController(
         var copyContainer = new V1Container
         {
             Name = "backup",
-            Image = "ubuntu:25.04",
+            Image = ContainerImages.Ubuntu,
             Command =
             [
                 "/bin/sh", "-c", $"tar czf /mnt/backups/{backup.Uid()}/world.tar.gz -C /mnt/data ."
@@ -170,7 +338,7 @@ public sealed class BackupController(
         var uploadContainer = new V1Container
         {
             Name = "upload",
-            Image = "amazon/aws-cli:2.22.32",
+            Image = ContainerImages.AwsCli,
             Command =
             [
                 "/bin/sh",
@@ -202,6 +370,9 @@ public sealed class BackupController(
             Env =
             [
                 new V1EnvVar { Name = "AWS_ENDPOINT_URL", Value = repo.Spec.S3?.Endpoint },
+                // Since AWS CLI 2.23.0, checksums are sent by default, which many S3-compatible providers reject.
+                new V1EnvVar { Name = "AWS_REQUEST_CHECKSUM_CALCULATION", Value = "when_required" },
+                new V1EnvVar { Name = "AWS_RESPONSE_CHECKSUM_VALIDATION", Value = "when_required" },
                 new V1EnvVar
                 {
                     Name = "AWS_ACCESS_KEY_ID",
@@ -254,12 +425,36 @@ public sealed class BackupController(
             Containers = []
         };
 
+        if (online)
+        {
+            // The server's volume is `ReadWriteOnce` and attached to the node of the running server Pod. A second Pod
+            // can only mount it on that same node, anywhere else it fails with a Multi-Attach error.
+            job.Spec.Template.Spec.Affinity = new V1Affinity
+            {
+                PodAffinity = new V1PodAffinity
+                {
+                    RequiredDuringSchedulingIgnoredDuringExecution =
+                    [
+                        new V1PodAffinityTerm
+                        {
+                            LabelSelector = new V1LabelSelector
+                            {
+                                MatchLabels = new Dictionary<string, string>
+                                {
+                                    { "kobblestone.io/server", server.Name() }
+                                }
+                            },
+                            TopologyKey = "kubernetes.io/hostname"
+                        }
+                    ]
+                }
+            };
+        }
+
         switch (repo.Spec.Type)
         {
             case BackupRepoType.PersistentVolumeClaim:
-                job.Spec.Template.Spec.Containers.Add(server.Status.Phase is ServerPhase.Running
-                    ? mcBackupContainer
-                    : copyContainer);
+                job.Spec.Template.Spec.Containers.Add(online ? mcBackupContainer : copyContainer);
 
                 job.Spec.Template.Spec.Volumes.Add(new V1Volume
                 {
@@ -271,15 +466,14 @@ public sealed class BackupController(
                 });
                 break;
             case BackupRepoType.S3:
-                job.Spec.Template.Spec.InitContainers.Add(server.Status.Phase is ServerPhase.Running
-                    ? mcBackupContainer
-                    : copyContainer);
+                job.Spec.Template.Spec.InitContainers.Add(online ? mcBackupContainer : copyContainer);
 
                 job.Spec.Template.Spec.Containers.Add(uploadContainer);
 
                 job.Spec.Template.Spec.Volumes.Add(new V1Volume
                 {
-                    Name = "backups", EmptyDir = new V1EmptyDirVolumeSource()
+                    Name = "backups",
+                    EmptyDir = new V1EmptyDirVolumeSource()
                 });
                 break;
         }

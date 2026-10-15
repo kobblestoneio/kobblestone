@@ -14,42 +14,77 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.phase
+    - description: |-
+        Current phase of the `Restore`.
+
+        Values:
+        - `Pending`: The `Restore` is waiting to be started, or its `Pod` is starting.
+        - `Running`: The `Restore` is currently running.
+        - `Completed`: The `Restore` completed successfully.
+        - `Failed`: The `Restore` failed.
+      jsonPath: .status.phase
       name: Status
       priority: 0
       type: string
-    - jsonPath: .status.message
+    - description: Message explaining the current state of the `Restore`.
+      jsonPath: .status.message
       name: Message
       priority: 0
       type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: |-
+          A `Restore` restores the data of a `Backup` into a `Server`.
+
+          The restore waits until the `Server` is in phase `Stopped` and keeps it stopped while it runs.
+          `Backup`s and `Restore`s of the same `Server` run one after another, in the order they were created.
         properties:
           spec:
             properties:
               backupRef:
+                description: Reference to the `Backup` to restore.
                 properties:
                   name:
                     type: string
                 type: object
               existingDataPolicy:
+                description: |-
+                  What happens if the target already contains data.
+
+                  Default is `Fail`.
+
+                  Values:
+                  - `Fail`: The restore fails if the target is not empty.
+                  - `Overwrite`: The existing data is replaced by the data of the backup.
+
+                  **Warning**: With `Overwrite`, the existing data is deleted. Create a `Backup` first if you might still need it.
                 enum:
                 - Fail
                 - Overwrite
                 nullable: true
                 type: string
               job:
+                description: Configures the spec of the managed `Job` object.
                 nullable: true
                 properties:
                   activeDeadlineSeconds:
+                    description: |-
+                      Maximum duration of the restore `Job` in seconds. When it is exceeded, the `Job` and thus the `Restore` fails.
+
+                      Default is no limit.
                     format: int32
                     nullable: true
                     type: integer
                   image:
+                    description: |-
+                      Custom image for the restore containers. It must provide `sh`, `ls`, `tar` and `mv`.
+
+                      Default is `ubuntu`.
                     nullable: true
                     type: string
                   resources:
+                    description: Compute resources of the restore `Pod`.
                     nullable: true
                     properties:
                       claims:
@@ -71,6 +106,7 @@ spec:
                         type: object
                     type: object
                   tolerations:
+                    description: Tolerations of the restore `Pod`.
                     items:
                       properties:
                         effect:
@@ -90,9 +126,17 @@ spec:
                     type: array
                 type: object
               path:
+                description: |-
+                  Path inside the server's data volume to restore into.
+
+                  Default is the root of the volume.
                 nullable: true
                 type: string
               targetRef:
+                description: |-
+                  Reference to the target `Server`.
+
+                  The `Server` must have storage configured.
                 properties:
                   apiGroup:
                     type: string
@@ -108,14 +152,28 @@ spec:
           status:
             properties:
               message:
+                description: Message explaining the current state of the `Restore`.
                 nullable: true
                 type: string
               phase:
+                description: |-
+                  Current phase of the `Restore`.
+
+                  Values:
+                  - `Pending`: The `Restore` is waiting to be started, or its `Pod` is starting.
+                  - `Running`: The `Restore` is currently running.
+                  - `Completed`: The `Restore` completed successfully.
+                  - `Failed`: The `Restore` failed.
                 enum:
                 - Pending
                 - Running
                 - Completed
                 - Failed
+                type: string
+              startedAt:
+                description: Time at which the `Job` of the `Restore` was created.
+                format: date-time
+                nullable: true
                 type: string
             type: object
         required:

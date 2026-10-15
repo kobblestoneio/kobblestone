@@ -183,15 +183,29 @@ public sealed class V1Alpha1Bot : CustomKubernetesEntity<V1Alpha1Bot.V1Alpha1Bot
                      """)]
         public int? Port { get; set; }
 
+        [Description("""
+                     Type of the `Bot`'s `Service`, e.g. `ClusterIP` or `LoadBalancer`.
+
+                     Default is `ClusterIP`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec")]
         public string? Type { get; set; }
 
+        [Description("""
+                     External traffic policy of the `Bot`'s `Service`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec")]
         public string? ExternalTrafficPolicy { get; set; }
 
+        [Description("""
+                     IP family policy of the `Bot`'s `Service`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec")]
         public string? IpFamilyPolicy { get; set; }
 
+        [Description("""
+                     Annotations added to the `Bot`'s `Service`, e.g. to configure a load balancer.
+                     """)]
         [ExternalDocs(
             "https://kubernetes.io/docs/reference/kubernetes-api/definitions/object-meta-v1-meta/#ObjectMeta")]
         public IDictionary<string, string>? Annotations { get; set; }
@@ -237,18 +251,33 @@ public sealed class V1Alpha1Bot : CustomKubernetesEntity<V1Alpha1Bot.V1Alpha1Bot
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container")]
         public string? Image { get; set; }
 
+        [Description("""
+                     Image pull policy of the bot container.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container")]
         public string? ImagePullPolicy { get; set; }
 
+        [Description("""
+                     Affinity of the bot `Pod`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Affinity")]
         public V1Affinity? Affinity { get; set; }
 
+        [Description("""
+                     Name of the node the bot `Pod` is scheduled on.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
         public string? NodeName { get; set; }
 
+        [Description("""
+                     Node selector of the bot `Pod`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
         public IDictionary<string, string>? NodeSelector { get; set; }
 
+        [Description("""
+                     Tolerations of the bot `Pod`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
         public IList<V1Toleration>? Tolerations { get; set; }
     }

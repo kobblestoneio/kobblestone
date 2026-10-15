@@ -6,6 +6,7 @@ using Kobblestone.Operator.Constants;
 using Kobblestone.Operator.Entities.V1Alpha1;
 
 using KubeOps.Abstractions.Entities;
+using KubeOps.Abstractions.Events;
 using KubeOps.Abstractions.Rbac;
 using KubeOps.Abstractions.Reconciliation;
 using KubeOps.Abstractions.Reconciliation.Controller;
@@ -22,18 +23,19 @@ namespace Kobblestone.Operator.Controller;
     Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update)]
 [GenericRbac(Groups = [V1HTTPRoute.KubeGroup], Resources = [V1HTTPRoute.KubePluralName],
     Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete)]
-public sealed class BotController(IKubernetesClient client) : IEntityController<V1Alpha1Bot>
+public sealed class BotController(IKubernetesClient client, EventPublisher emitEvent) : IEntityController<V1Alpha1Bot>
 {
     private static readonly JsonSerializerOptions JsonSerializerOptions = new() { WriteIndented = true };
 
     public async Task<ReconciliationResult<V1Alpha1Bot>> ReconcileAsync(V1Alpha1Bot entity,
         CancellationToken cancellationToken)
     {
-        var result = await EnsureConfigMapAsync(entity, cancellationToken).ConfigureAwait(false);
+        var configMap = await EnsureConfigMapAsync(entity, cancellationToken).ConfigureAwait(false);
 
-        if (!result.IsSuccess)
+        if (configMap is null)
         {
-            return result;
+            // Target could not be resolved (yet), an event was emitted. Try again later.
+            return ReconciliationResult<V1Alpha1Bot>.Success(entity, TimeSpan.FromSeconds(5));
         }
 
         await EnsureServiceAsync(entity, cancellationToken).ConfigureAwait(false);
@@ -127,7 +129,7 @@ public sealed class BotController(IKubernetesClient client) : IEntityController<
         route.WithOwnerReference(bot);
     }
 
-    private async Task<ReconciliationResult<V1Alpha1Bot>> EnsureConfigMapAsync(V1Alpha1Bot bot,
+    private async Task<V1ConfigMap?> EnsureConfigMapAsync(V1Alpha1Bot bot,
         CancellationToken cancellationToken)
     {
         (string? address, int? port) = bot.Spec.Target.TargetRef switch
@@ -148,8 +150,14 @@ public sealed class BotController(IKubernetesClient client) : IEntityController<
 
         if (address is null)
         {
-            return ReconciliationResult<V1Alpha1Bot>.Failure(bot, "Could not resolve target address",
-                requeueAfter: TimeSpan.FromSeconds(5));
+            await emitEvent(bot,
+                "TargetNotResolved",
+                bot.Spec.Target.TargetRef is { } targetRef
+                    ? $"Could not resolve the address of target {targetRef.Kind ?? "Server"} {targetRef.Name}."
+                    : "Neither `targetRef` nor `host` is set.",
+                EventType.Warning, cancellationToken).ConfigureAwait(false);
+
+            return null;
         }
 
         var cm = await client.GetAsync<V1ConfigMap>(bot.Name(), bot.Namespace(), cancellationToken)
@@ -170,7 +178,7 @@ public sealed class BotController(IKubernetesClient client) : IEntityController<
             cm = await client.UpdateAsync(cm, cancellationToken).ConfigureAwait(false);
         }
 
-        return ReconciliationResult<V1Alpha1Bot>.Success(bot);
+        return cm;
     }
 
     private async Task<(string?, int?)> ResolveNetworkAddressAsync(string name, string ns,
@@ -313,10 +321,10 @@ public sealed class BotController(IKubernetesClient client) : IEntityController<
                     new V1LocalObjectReference { Name = "dockerconfig" }
                 ],
                 Volumes = bot.Spec.Behaviors?.Select(b => new V1Volume
-                    {
-                        Name = $"behavior-{b.BehaviorRef.Name}",
-                        ConfigMap = new V1ConfigMapVolumeSource { Name = b.BehaviorRef.Name }
-                    }).Concat([
+                {
+                    Name = $"behavior-{b.BehaviorRef.Name}",
+                    ConfigMap = new V1ConfigMapVolumeSource { Name = b.BehaviorRef.Name }
+                }).Concat([
                         new V1Volume { Name = "config", ConfigMap = new V1ConfigMapVolumeSource { Name = bot.Name() } }
                     ]).Concat(bot.Spec.Auth?.AccountRef is not null
                         ?
@@ -334,7 +342,7 @@ public sealed class BotController(IKubernetesClient client) : IEntityController<
                     new V1Container
                     {
                         Name = "bot",
-                        Image = bot.Spec.Pod?.Image ?? "ghcr.io/kobblestoneio/bot-runner:0.1.0",
+                        Image = bot.Spec.Pod?.Image ?? ContainerImages.BotRunner,
                         ImagePullPolicy = bot.Spec.Pod?.ImagePullPolicy,
                         Resources = bot.Spec.Resources,
                         VolumeMounts = bot.Spec.Behaviors?.Select(b => new V1VolumeMount

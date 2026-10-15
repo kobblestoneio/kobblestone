@@ -90,6 +90,11 @@ public sealed class
         public string? Repo { get; set; }
 
         [Description("""
+                     Time at which the `Job` of the `Backup` was created.
+                     """)]
+        public DateTime? StartedAt { get; set; }
+
+        [Description("""
                      Conditions of the `Backup`.
                      """)]
         public IList<V1Condition> Conditions { get; set; } = [];
@@ -97,15 +102,31 @@ public sealed class
 
     public record V1Alpha1BackupJob
     {
+        [Description("""
+                     Compute resources of the backup `Pod`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
         public V1ResourceRequirements? Resources { get; set; }
 
+        [Description("""
+                     Maximum duration of the backup `Job` in seconds. When it is exceeded, the `Job` and thus the `Backup` fails.
+
+                     Default is no limit.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/batch/job-v1/#JobSpec")]
         public int? ActiveDeadlineSeconds { get; set; }
 
+        [Description("""
+                     Custom image for online backups of running servers.
+
+                     Default is `itzg/mc-backup`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container")]
         public string? Image { get; set; }
 
+        [Description("""
+                     Tolerations of the backup `Pod`.
+                     """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
         public IList<V1Toleration> Tolerations { get; set; } = new List<V1Toleration>();
     }
