@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MessagePack"/>
+    <PackageReference Include="Microsoft.Extensions.Hosting"/>
+    <PackageReference Include="Tomlyn"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Kobblestone.Sessions/Kobblestone.Sessions.csproj"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- MCC C# script bundled with the image, not compiled into the runner. -->
+    <Compile Remove="Scripts/**"/>
+    <None Include="Scripts/**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
+  </ItemGroup>
+
+</Project>

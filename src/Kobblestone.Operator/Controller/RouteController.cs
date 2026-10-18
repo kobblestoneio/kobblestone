@@ -147,37 +147,37 @@ public sealed class RouteController(
         switch (backendRef.Kind)
         {
             case null or "Server":
-                {
-                    var server = await client
-                        .GetAsync<V1Alpha1Server>(backendRef.Name, backendRef.Namespace ?? route.Namespace(),
-                            cancellationToken)
-                        .ConfigureAwait(false);
+            {
+                var server = await client
+                    .GetAsync<V1Alpha1Server>(backendRef.Name, backendRef.Namespace ?? route.Namespace(),
+                        cancellationToken)
+                    .ConfigureAwait(false);
 
-                    return server is null
-                        ? null
-                        : $"{server.Name()}.{server.Namespace()}.svc.cluster.local:{(server.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort)}";
-                }
+                return server is null
+                    ? null
+                    : $"{server.Name()}.{server.Namespace()}.svc.cluster.local:{(server.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort)}";
+            }
             case "Network":
-                {
-                    var network = await client
-                        .GetAsync<V1Alpha1Network>(backendRef.Name, backendRef.Namespace ?? route.Namespace(),
-                            cancellationToken).ConfigureAwait(false);
+            {
+                var network = await client
+                    .GetAsync<V1Alpha1Network>(backendRef.Name, backendRef.Namespace ?? route.Namespace(),
+                        cancellationToken).ConfigureAwait(false);
 
-                    return network is null
-                        ? null
-                        : $"{network.Name()}.{network.Namespace()}.svc.cluster.local:{(network.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort)}";
-                }
+                return network is null
+                    ? null
+                    : $"{network.Name()}.{network.Namespace()}.svc.cluster.local:{(network.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort)}";
+            }
             case "Router":
-                {
-                    var router = await client
-                        .GetAsync<V1Alpha1Router>(backendRef.Name, backendRef.Namespace ?? route.Namespace(),
-                            cancellationToken)
-                        .ConfigureAwait(false);
+            {
+                var router = await client
+                    .GetAsync<V1Alpha1Router>(backendRef.Name, backendRef.Namespace ?? route.Namespace(),
+                        cancellationToken)
+                    .ConfigureAwait(false);
 
-                    return router is null
-                        ? null
-                        : $"{router.Name()}.{router.Namespace()}.svc.cluster.local:{(router.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort)}";
-                }
+                return router is null
+                    ? null
+                    : $"{router.Name()}.{router.Namespace()}.svc.cluster.local:{(router.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort)}";
+            }
             case "Service":
                 return
                     $"{backendRef.Name}.{backendRef.Namespace ?? route.Namespace()}.svc.cluster.local:{(backendRef.Port ?? MinecraftConstants.DefaultMinecraftPort)}";

@@ -1,9 +1,13 @@
-﻿using System.Text.Json;
+﻿using System.Security.Cryptography;
+using System.Text;
 
 using k8s.Models;
 
+using Kobblestone.Operator.Conditions;
 using Kobblestone.Operator.Constants;
 using Kobblestone.Operator.Entities.V1Alpha1;
+using Kobblestone.Operator.Utils;
+using Kobblestone.Sessions;
 
 using KubeOps.Abstractions.Entities;
 using KubeOps.Abstractions.Events;
@@ -11,155 +15,292 @@ using KubeOps.Abstractions.Rbac;
 using KubeOps.Abstractions.Reconciliation;
 using KubeOps.Abstractions.Reconciliation.Controller;
 using KubeOps.KubernetesClient;
+using KubeOps.KubernetesClient.Selectors;
 
-using KubernetesCRDModelGen.Models.gateway.networking.k8s.io;
+using Tomlyn;
+using Tomlyn.Model;
 
 namespace Kobblestone.Operator.Controller;
 
+/// <summary>
+/// Runs a `Bot` as a single Minecraft-Console-Client (MCC) process in a `Deployment`.
+/// </summary>
+/// <remarks>
+/// The operator only renders MCC configuration layers into a `ConfigMap`; referenced `ConfigMap`s and `Secret`s are
+/// projected into the `Pod` directly. Kobblestone.BotRunner merges the layers, converts the mounted session `Secret`
+/// of the `Account` into MCC's session cache and runs MCC. The status is derived from the bot `Pod`s, which are
+/// watched by the BotPodController.
+/// </remarks>
 [EntityRbac(typeof(V1Alpha1Bot), Verbs = RbacVerb.Watch | RbacVerb.Get | RbacVerb.Update)]
-[GenericRbac(Groups = [V1Service.KubeGroup], Resources = [V1Service.KubePluralName],
+[EntityRbac(typeof(V1Alpha1Account), Verbs = RbacVerb.Get)]
+[EntityRbac(typeof(V1Alpha1Server), Verbs = RbacVerb.Get)]
+[EntityRbac(typeof(V1Alpha1Network), Verbs = RbacVerb.Get)]
+[GenericRbac(Groups = [V1ConfigMap.KubeGroup], Resources = [V1ConfigMap.KubePluralName],
     Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update)]
+[GenericRbac(Groups = [V1Secret.KubeGroup], Resources = [V1Secret.KubePluralName], Verbs = RbacVerb.Get)]
 [GenericRbac(Groups = [V1Deployment.KubeGroup], Resources = [V1Deployment.KubePluralName],
     Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update)]
-[GenericRbac(Groups = [V1HTTPRoute.KubeGroup], Resources = [V1HTTPRoute.KubePluralName],
-    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete)]
+[GenericRbac(Groups = [V1Pod.KubeGroup], Resources = [V1Pod.KubePluralName], Verbs = RbacVerb.List)]
 public sealed class BotController(IKubernetesClient client, EventPublisher emitEvent) : IEntityController<V1Alpha1Bot>
 {
-    private static readonly JsonSerializerOptions JsonSerializerOptions = new() { WriteIndented = true };
+    public const string BotLabel = "kobblestone.io/bot";
+
+    /// <summary>Hash of the rendered configuration; changes roll out the bot.</summary>
+    private const string ConfigHashAnnotation = "kobblestone.io/config-hash";
+
+    /// <summary>Version of the session `Secret`; a refreshed session rolls out the bot.</summary>
+    private const string SessionVersionAnnotation = "kobblestone.io/session-version";
+
+    // File system layout of the bot Pod, see Kobblestone.BotRunner's BotRunnerOptions.
+    private const string ConfigDirectory = "/etc/kobblestone/bot/config";
+
+    private const string ScriptsDirectory = "/etc/kobblestone/bot/scripts";
+
+    private const string SessionDirectory = "/etc/kobblestone/session";
+
+    private const string ReadyFile = "/tmp/kobblestone-ready";
+
+    private const string ScriptKeyPrefix = "script.";
+
+    private static readonly TomlSerializerOptions TomlOptions = new() { WriteIndented = true };
 
     public async Task<ReconciliationResult<V1Alpha1Bot>> ReconcileAsync(V1Alpha1Bot entity,
         CancellationToken cancellationToken)
     {
-        var configMap = await EnsureConfigMapAsync(entity, cancellationToken).ConfigureAwait(false);
+        var before = EntityQueueExtensions.Snapshot(entity.Status);
 
-        if (configMap is null)
+        if (Validate(entity) is { } invalid)
         {
-            // Target could not be resolved (yet), an event was emitted. Try again later.
-            return ReconciliationResult<V1Alpha1Bot>.Success(entity, TimeSpan.FromSeconds(5));
+            await emitEvent(entity, "InvalidSpec", invalid, EventType.Warning, cancellationToken).ConfigureAwait(false);
+
+            SetPhase(entity, V1Alpha1Bot.BotPhase.Pending, invalid, "InvalidSpec");
+
+            return await UpdateStatusAsync(entity, before, null, cancellationToken).ConfigureAwait(false);
         }
 
-        await EnsureServiceAsync(entity, cancellationToken).ConfigureAwait(false);
-
-        await EnsureHttpRouteAsync(entity, cancellationToken).ConfigureAwait(false);
-
-        await EnsureDeploymentAsync(entity, cancellationToken).ConfigureAwait(false);
-
-        entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
-
-        return ReconciliationResult<V1Alpha1Bot>.Success(entity);
-    }
-
-    private async Task<V1HTTPRoute?> EnsureHttpRouteAsync(V1Alpha1Bot bot, CancellationToken cancellationToken)
-    {
-        var routeName = $"{bot.Name()}-viewer";
-
-        if (bot.Spec.Viewer?.HttpRoute is null && bot.Status.HttpRoute is true)
-        {
-            var existingRoute = await client
-                .GetAsync<V1HTTPRoute>(routeName, bot.Namespace(), cancellationToken).ConfigureAwait(false);
-
-            if (existingRoute is null)
-            {
-                return null;
-            }
-
-            await client.DeleteAsync(existingRoute, cancellationToken).ConfigureAwait(false);
-
-            bot.Status.HttpRoute = null;
-
-            return null;
-        }
-
-        if (bot.Spec.Viewer?.HttpRoute is null)
-        {
-            return null;
-        }
-
-        var route = await client.GetAsync<V1HTTPRoute>(routeName, bot.Namespace(), cancellationToken)
-            .ConfigureAwait(false);
-
-        if (route is null)
-        {
-            route = new V1HTTPRoute { Metadata = new V1ObjectMeta(), Spec = new V1HTTPRouteSpec { Rules = [] } };
-
-            ApplyHttpRoute(route, bot);
-
-            route = await client.CreateAsync(route, cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            ApplyHttpRoute(route, bot);
-
-            route = await client.UpdateAsync(route, cancellationToken).ConfigureAwait(false);
-        }
-
-        bot.Status.HttpRoute = true;
-
-        return route;
-    }
-
-    private static void ApplyHttpRoute(V1HTTPRoute route, V1Alpha1Bot bot)
-    {
-        route.Metadata.Name = $"{bot.Name()}-viewer";
-        route.Metadata.NamespaceProperty = bot.Namespace();
-
-        route.Spec.ParentRefs = bot.Spec.Viewer?.HttpRoute?.ParentRefs;
-        route.Spec.Hostnames = bot.Spec.Viewer?.HttpRoute?.Hostnames;
-        route.Spec.Rules =
-        [
-            new V1HTTPRouteSpecRules
-            {
-                Matches = bot.Spec.Viewer?.HttpRoute?.Matches ??
-                [
-                    new V1HTTPRouteSpecRulesMatches
-                    {
-                        Path = new V1HTTPRouteSpecRulesMatchesPath
-                        {
-                            Value = "/", Type = V1HTTPRouteSpecRulesMatchesPathTypeEnum.PathPrefix
-                        }
-                    }
-                ],
-                BackendRefs =
-                [
-                    new V1HTTPRouteSpecRulesBackendRefs { Name = bot.Name(), Port = bot.Spec.Service?.Port ?? 3000 }
-                ]
-            }
-        ];
-
-        route.WithOwnerReference(bot);
-    }
-
-    private async Task<V1ConfigMap?> EnsureConfigMapAsync(V1Alpha1Bot bot,
-        CancellationToken cancellationToken)
-    {
-        (string? address, int? port) = bot.Spec.Target.TargetRef switch
-        {
-            { Kind: null or "Server" } => await ResolveServerAddressAsync(bot.Spec.Target.TargetRef.Name,
-                    bot.Spec.Target.TargetRef.NamespaceProperty ?? bot.Namespace(), cancellationToken)
-                .ConfigureAwait(false),
-            { Kind: "Network" } => await ResolveNetworkAddressAsync(bot.Spec.Target.TargetRef.Name,
-                    bot.Spec.Target.TargetRef.NamespaceProperty ?? bot.Namespace(), cancellationToken)
-                .ConfigureAwait(false),
-            _ => (null, null)
-        };
-
-        if (bot.Spec.Target.Host is { } host)
-        {
-            address = host;
-        }
+        var (address, port) = await ResolveTargetAsync(entity, cancellationToken).ConfigureAwait(false);
 
         if (address is null)
         {
-            await emitEvent(bot,
+            await emitEvent(entity,
                 "TargetNotResolved",
-                bot.Spec.Target.TargetRef is { } targetRef
+                entity.Spec.Target.TargetRef is { } targetRef
                     ? $"Could not resolve the address of target {targetRef.Kind ?? "Server"} {targetRef.Name}."
                     : "Neither `targetRef` nor `host` is set.",
                 EventType.Warning, cancellationToken).ConfigureAwait(false);
 
-            return null;
+            SetPhase(entity, V1Alpha1Bot.BotPhase.Pending, "Target could not be resolved.", "TargetNotResolved");
+
+            return await UpdateStatusAsync(entity, before, TimeSpan.FromSeconds(30), cancellationToken)
+                .ConfigureAwait(false);
         }
 
+        entity.Status.Address = $"{address}:{port}";
+
+        var session = await GetSessionAsync(entity, cancellationToken).ConfigureAwait(false);
+
+        // Without a valid session MCC would only fail to log in: keep the bot scaled down until the Account is
+        // authorized. The AccountSecretController queues the Bot when the session changes.
+        var waitingForAccount = entity.Spec.Auth is not null && session.Session is null;
+
+        entity.Status.Username = entity.Spec.Auth is null
+            ? entity.Spec.OfflineUsername ?? entity.Name()
+            : session.Session?.Username;
+
+        var configMap = await EnsureConfigMapAsync(entity, address, port, cancellationToken).ConfigureAwait(false);
+
+        await EnsureDeploymentAsync(entity, configMap, session.ResourceVersion, waitingForAccount, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (entity.Spec.Inactive is true)
+        {
+            SetPhase(entity, V1Alpha1Bot.BotPhase.Inactive, "Bot inactive.", "Inactive");
+        }
+        else if (waitingForAccount)
+        {
+            SetPhase(entity, V1Alpha1Bot.BotPhase.Pending,
+                $"Waiting for Account {entity.Spec.Auth!.AccountRef.Name} to be authorized.", "AccountNotAuthorized");
+        }
+        else
+        {
+            await DeriveStatusFromPodsAsync(entity, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await UpdateStatusAsync(entity, before, null, cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task<ReconciliationResult<V1Alpha1Bot>> DeletedAsync(V1Alpha1Bot entity,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(ReconciliationResult<V1Alpha1Bot>.Success(entity));
+    }
+
+    /// <summary>
+    /// Checks constraints the CRD schema cannot express. Returns an error message or <c>null</c>.
+    /// </summary>
+    private static string? Validate(V1Alpha1Bot bot)
+    {
+        foreach (var (source, index) in (bot.Spec.Config?.From ?? []).Select((s, i) => (s, i)))
+        {
+            if ((source.ConfigMapKeyRef is null) == (source.SecretKeyRef is null))
+            {
+                return $"`config.from[{index}]` must set exactly one of `configMapKeyRef` and `secretKeyRef`.";
+            }
+        }
+
+        var scripts = bot.Spec.Scripts ?? [];
+
+        foreach (var script in scripts)
+        {
+            var sources = new object?[] { script.Inline, script.ConfigMapKeyRef, script.SecretKeyRef };
+
+            if (sources.Count(x => x is not null) != 1)
+            {
+                return $"Script `{script.Name}` must set exactly one of `inline`, `configMapKeyRef` and `secretKeyRef`.";
+            }
+        }
+
+        if (scripts.GroupBy(s => s.Name).FirstOrDefault(g => g.Count() > 1) is { } duplicate)
+        {
+            return $"Script `{duplicate.Key}` is defined more than once.";
+        }
+
+        return null;
+    }
+
+    private async Task<ReconciliationResult<V1Alpha1Bot>> UpdateStatusAsync(V1Alpha1Bot entity, string before,
+        TimeSpan? requeueAfter, CancellationToken cancellationToken)
+    {
+        if (EntityQueueExtensions.Snapshot(entity.Status) != before)
+        {
+            entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
+        }
+
+        return ReconciliationResult<V1Alpha1Bot>.Success(entity, requeueAfter);
+    }
+
+    private static void SetPhase(V1Alpha1Bot bot, V1Alpha1Bot.BotPhase phase, string message, string reason)
+    {
+        bot.Status.Phase = phase;
+        bot.Status.Message = message;
+
+        bot.WithConditions(phase is V1Alpha1Bot.BotPhase.Connected
+            ? BotConditions.Connected.WithReason(reason).WithMessage(message)
+            : BotConditions.Connected.False().WithReason(reason).WithMessage(message));
+    }
+
+    private async Task DeriveStatusFromPodsAsync(V1Alpha1Bot bot, CancellationToken cancellationToken)
+    {
+        var pods = await client.ListAsync<V1Pod>(bot.Namespace(), new EqualsLabelSelector(BotLabel, bot.Name()),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        var pod = pods
+            .Where(p => p.Metadata.DeletionTimestamp is null)
+            .MaxBy(p => p.Metadata.CreationTimestamp);
+
+        var container = pod?.Status?.ContainerStatuses?.FirstOrDefault(c => c.Name == "bot");
+
+        bot.Status.Restarts = container?.RestartCount;
+
+        if (container is null)
+        {
+            SetPhase(bot, V1Alpha1Bot.BotPhase.Pending, "Bot Pod is starting.", "Starting");
+
+            return;
+        }
+
+        if (container.Ready)
+        {
+            SetPhase(bot, V1Alpha1Bot.BotPhase.Connected, $"Connected to {bot.Status.Address}.", "Connected");
+
+            return;
+        }
+
+        // Kobblestone.BotRunner reports why MCC exited in the termination message.
+        var lastTermination = container.State?.Terminated ?? container.LastState?.Terminated;
+
+        if (lastTermination is not null)
+        {
+            SetPhase(bot, V1Alpha1Bot.BotPhase.Disconnected,
+                lastTermination.Message?.Trim() is { Length: > 0 } message
+                    ? message
+                    : $"Bot exited with code {lastTermination.ExitCode}.",
+                "Disconnected");
+
+            return;
+        }
+
+        SetPhase(bot, V1Alpha1Bot.BotPhase.Pending, "Bot is connecting.", "Connecting");
+    }
+
+    private async Task<(string? Address, int Port)> ResolveTargetAsync(V1Alpha1Bot bot,
+        CancellationToken cancellationToken)
+    {
+        string? address = null;
+        int? port = null;
+
+        if (bot.Spec.Target.TargetRef is { } targetRef)
+        {
+            var ns = targetRef.NamespaceProperty ?? bot.Namespace();
+
+            switch (targetRef.Kind)
+            {
+                case null or "Server":
+                    var server = await client.GetAsync<V1Alpha1Server>(targetRef.Name, ns, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (server is not null)
+                    {
+                        address = $"{server.Name()}.{server.Namespace()}.svc.cluster.local";
+                        port = server.Spec.Service?.Port;
+                    }
+
+                    break;
+                case "Network":
+                    var network = await client.GetAsync<V1Alpha1Network>(targetRef.Name, ns, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (network is not null)
+                    {
+                        address = $"{network.Name()}.{network.Namespace()}.svc.cluster.local";
+                        port = network.Spec.Service?.Port;
+                    }
+
+                    break;
+            }
+        }
+
+        return (bot.Spec.Target.Host ?? address,
+            bot.Spec.Target.Port ?? port ?? MinecraftConstants.DefaultMinecraftPort);
+    }
+
+    private async Task<(MinecraftSession? Session, string? ResourceVersion)> GetSessionAsync(V1Alpha1Bot bot,
+        CancellationToken cancellationToken)
+    {
+        if (bot.Spec.Auth?.AccountRef.Name is not { } accountName)
+        {
+            return (null, null);
+        }
+
+        // The session Secret has the Account's name and the standard format (Kobblestone.Sessions).
+        var secret = await client.GetAsync<V1Secret>(accountName, bot.Namespace(), cancellationToken)
+            .ConfigureAwait(false);
+
+        if (secret?.Type != SessionSecret.Type)
+        {
+            return (null, null);
+        }
+
+        var session = SessionSecret.Read(secret.Data);
+
+        return session is null || session.IsExpired(DateTimeOffset.UtcNow)
+            ? (null, null)
+            : (session, secret.ResourceVersion());
+    }
+
+    private async Task<V1ConfigMap> EnsureConfigMapAsync(V1Alpha1Bot bot, string address, int port,
+        CancellationToken cancellationToken)
+    {
         var cm = await client.GetAsync<V1ConfigMap>(bot.Name(), bot.Namespace(), cancellationToken)
             .ConfigureAwait(false);
 
@@ -167,116 +308,140 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
         {
             cm = new V1ConfigMap { Metadata = new V1ObjectMeta() };
 
-            ApplyConfigMap(cm, bot, address, bot.Spec.Target.Port ?? port ?? MinecraftConstants.DefaultMinecraftPort);
+            ApplyConfigMap(cm, bot, address, port);
 
-            cm = await client.CreateAsync(cm, cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            ApplyConfigMap(cm, bot, address, bot.Spec.Target.Port ?? port ?? MinecraftConstants.DefaultMinecraftPort);
-
-            cm = await client.UpdateAsync(cm, cancellationToken).ConfigureAwait(false);
+            return await client.CreateAsync(cm, cancellationToken).ConfigureAwait(false);
         }
 
-        return cm;
+        ApplyConfigMap(cm, bot, address, port);
+
+        return await client.UpdateAsync(cm, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<(string?, int?)> ResolveNetworkAddressAsync(string name, string ns,
-        CancellationToken cancellationToken)
-    {
-        var network = await client.GetAsync<V1Alpha1Network>(name, ns, cancellationToken).ConfigureAwait(false);
-
-        return network is null
-            ? (null, null)
-            : ($"{network.Name()}.{network.Namespace()}.svc.cluster.local",
-                network.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort);
-    }
-
-    private async Task<(string?, int?)> ResolveServerAddressAsync(string name, string ns,
-        CancellationToken cancellationToken)
-    {
-        var server = await client.GetAsync<V1Alpha1Server>(name, ns, cancellationToken).ConfigureAwait(false);
-
-        return server is null
-            ? (null, null)
-            : ($"{server.Name()}.{server.Namespace()}.svc.cluster.local",
-                server.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort);
-    }
-
-    private static void ApplyConfigMap(V1ConfigMap cm, V1Alpha1Bot bot, string address, int? port)
+    private static void ApplyConfigMap(V1ConfigMap cm, V1Alpha1Bot bot, string address, int port)
     {
         cm.Metadata.Name = bot.Name();
         cm.Metadata.NamespaceProperty = bot.Namespace();
+        cm.Metadata.Labels = new Dictionary<string, string> { [BotLabel] = bot.Name() };
 
-        cm.Data = new Dictionary<string, string>();
-
-        var config = new
+        cm.Data = new Dictionary<string, string>
         {
-            host = address,
-            port,
-            username = bot.Spec.OfflineUsername,
-            viewer = bot.Spec.Viewer is { } viewer
-                ? new
-                {
-                    port = 3000,
-                    firstPerson = viewer.Mode is V1Alpha1Bot.BotViewerMode.FirstPerson or null,
-                    viewDistance = viewer.ViewDistance ?? 4
-                }
-                : null,
-            behaviors = bot.Spec.Behaviors?.Select(b => new { name = b.BehaviorRef.Name, @params = b.Parameters }) ?? []
+            ["00-base.toml"] = Serialize(BaseLayer()),
+            ["30-scheduler.toml"] = Serialize(SchedulerLayer(bot)),
+            ["99-managed.toml"] = Serialize(ManagedLayer(bot, address, port))
         };
 
-        var configJson = JsonSerializer.Serialize(config, JsonSerializerOptions);
+        if (bot.Spec.Config?.Inline is { } inline)
+        {
+            cm.Data["10-inline.toml"] = inline.ReplaceLineEndings("\n");
+        }
 
-        cm.Data["config.json"] = configJson.ReplaceLineEndings("\n");
+        foreach (var script in bot.Spec.Scripts ?? [])
+        {
+            if (script.Inline is { } content)
+            {
+                cm.Data[ScriptKeyPrefix + script.Name] = content.ReplaceLineEndings("\n");
+            }
+        }
 
         cm.WithOwnerReference(bot);
     }
 
-    private async Task<V1Service> EnsureServiceAsync(V1Alpha1Bot bot, CancellationToken cancellationToken)
+    /// <summary>
+    /// Defaults for running MCC unattended in a container. Users may override them.
+    /// </summary>
+    private static TomlTable BaseLayer() => new()
     {
-        var service = await client.GetAsync<V1Service>(bot.Name(), bot.Namespace(), cancellationToken)
-            .ConfigureAwait(false);
-
-        if (service is null)
+        // TODO(verify): Setting names against the bundled MCC version.
+        ["Main"] = new TomlTable
         {
-            service = new V1Service { Metadata = new V1ObjectMeta(), Spec = new V1ServiceSpec() };
+            ["Advanced"] = new TomlTable
+            {
+                ["Language"] = "en_us",
+                ["MinecraftVersion"] = "auto",
+                // Exit instead of prompting on failures; Kubernetes restarts the container.
+                ["ExitOnFailure"] = true
+            }
+        },
+        ["Console"] = new TomlTable { ["General"] = new TomlTable { ["Display_Input"] = false } }
+    };
 
-            ApplyService(service, bot);
+    /// <summary>
+    /// <c>ScriptScheduler</c> tasks for scripts with <c>runOnLogin</c>.
+    /// </summary>
+    private static TomlTable SchedulerLayer(V1Alpha1Bot bot)
+    {
+        var tasks = new TomlTableArray();
 
-            service = await client.CreateAsync(service, cancellationToken).ConfigureAwait(false);
-        }
-        else
+        foreach (var script in bot.Spec.Scripts?.Where(s => s.RunOnLogin is true) ?? [])
         {
-            ApplyService(service, bot);
-
-            service = await client.UpdateAsync(service, cancellationToken).ConfigureAwait(false);
+            tasks.Add(new TomlTable
+            {
+                ["Task_Name"] = $"run-{script.Name}",
+                ["Trigger_On_Login"] = true,
+                ["Action"] = $"script {script.Name}"
+            });
         }
 
-        return service;
+        if (tasks.Count == 0)
+        {
+            return new TomlTable();
+        }
+
+        return new TomlTable
+        {
+            ["ChatBot"] = new TomlTable
+            {
+                ["ScriptScheduler"] = new TomlTable { ["Enabled"] = true, ["TaskList"] = tasks }
+            }
+        };
     }
 
-    private static void ApplyService(V1Service service, V1Alpha1Bot bot)
+    /// <summary>
+    /// Settings owned by Kobblestone. The account of online bots is set by Kobblestone.BotRunner from the session.
+    /// </summary>
+    private static TomlTable ManagedLayer(V1Alpha1Bot bot, string address, int port)
     {
-        service.Metadata.Name = bot.Name();
-        service.Metadata.NamespaceProperty = bot.Namespace();
-        service.Metadata.Annotations = bot.Spec.Service?.Annotations;
-        service.Metadata.Labels = PodLabels(bot);
+        var signChat = bot.Spec.Auth?.SignChat is true;
 
-        service.Spec.Type = bot.Spec.Service?.Type ?? "ClusterIP";
-        service.Spec.Selector = PodLabels(bot);
-        service.Spec.ExternalTrafficPolicy = bot.Spec.Service?.ExternalTrafficPolicy;
-        service.Spec.IpFamilyPolicy = bot.Spec.Service?.IpFamilyPolicy;
-        service.Spec.Ports =
-        [
-            new V1ServicePort { Name = "status", Port = bot.Spec.Service?.Port ?? 8080, TargetPort = 8080 },
-            new V1ServicePort { Name = "viewer", Port = bot.Spec.Viewer?.Port ?? 3000, TargetPort = 3000 }
-        ];
+        var general = new TomlTable
+        {
+            ["Server"] = new TomlTable { ["Host"] = address, ["Port"] = port },
+            ["AccountType"] = bot.Spec.Auth is null ? "mojang" : "microsoft"
+        };
 
-        service.WithOwnerReference(bot);
+        if (bot.Spec.Auth is null)
+        {
+            // A password of "-" makes MCC join in offline mode.
+            general["Account"] = new TomlTable
+            {
+                ["Login"] = bot.Spec.OfflineUsername ?? bot.Name(),
+                ["Password"] = "-"
+            };
+        }
+
+        // TODO(verify): Setting names against the bundled MCC version.
+        return new TomlTable
+        {
+            ["Main"] = new TomlTable
+            {
+                ["General"] = general,
+                ["Advanced"] = new TomlTable { ["SessionCache"] = "Disk", ["ProfileKeyCache"] = "Disk" }
+            },
+            ["Signature"] = new TomlTable
+            {
+                ["LoginWithSecureProfile"] = signChat,
+                ["SignChat"] = signChat,
+                ["SignMessageInCommand"] = signChat
+            }
+        };
     }
 
-    private async Task<V1Deployment> EnsureDeploymentAsync(V1Alpha1Bot bot, CancellationToken cancellationToken)
+    private static string Serialize(TomlTable table) =>
+        TomlSerializer.Serialize(table, TomlOptions).ReplaceLineEndings("\n");
+
+    private async Task EnsureDeploymentAsync(V1Alpha1Bot bot, V1ConfigMap configMap, string? sessionVersion,
+        bool waitingForAccount, CancellationToken cancellationToken)
     {
         var deploy = await client.GetAsync<V1Deployment>(bot.Name(), bot.Namespace(), cancellationToken)
             .ConfigureAwait(false);
@@ -285,58 +450,85 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
         {
             deploy = new V1Deployment { Metadata = new V1ObjectMeta(), Spec = new V1DeploymentSpec() };
 
-            ApplyDeployment(deploy, bot);
+            ApplyDeployment(deploy, bot, configMap, sessionVersion, waitingForAccount);
 
-            deploy = await client.CreateAsync(deploy, cancellationToken).ConfigureAwait(false);
+            await client.CreateAsync(deploy, cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            ApplyDeployment(deploy, bot);
+            ApplyDeployment(deploy, bot, configMap, sessionVersion, waitingForAccount);
 
-            deploy = await client.UpdateAsync(deploy, cancellationToken).ConfigureAwait(false);
+            await client.UpdateAsync(deploy, cancellationToken).ConfigureAwait(false);
         }
-
-        return deploy;
     }
 
-
-    private static void ApplyDeployment(V1Deployment deploy, V1Alpha1Bot bot)
+    private static void ApplyDeployment(V1Deployment deploy, V1Alpha1Bot bot, V1ConfigMap configMap,
+        string? sessionVersion, bool waitingForAccount)
     {
+        var labels = new Dictionary<string, string> { [BotLabel] = bot.Name() };
+
+        var annotations = new Dictionary<string, string> { [ConfigHashAnnotation] = Hash(configMap.Data) };
+
+        if (sessionVersion is not null)
+        {
+            annotations[SessionVersionAnnotation] = sessionVersion;
+        }
+
+        var volumes = new List<V1Volume>
+        {
+            new() { Name = "config", Projected = new V1ProjectedVolumeSource { Sources = ConfigSources(bot) } },
+            bot.Spec.Scripts is { Count: > 0 }
+                ? new() { Name = "scripts", Projected = new V1ProjectedVolumeSource { Sources = ScriptSources(bot) } }
+                : new() { Name = "scripts", EmptyDir = new V1EmptyDirVolumeSource() },
+            new() { Name = "data", EmptyDir = new V1EmptyDirVolumeSource() }
+        };
+
+        var volumeMounts = new List<V1VolumeMount>
+        {
+            new() { Name = "config", MountPath = ConfigDirectory, ReadOnlyProperty = true },
+            new() { Name = "scripts", MountPath = ScriptsDirectory, ReadOnlyProperty = true },
+            new() { Name = "data", MountPath = "/data" }
+        };
+
+        if (bot.Spec.Auth?.AccountRef.Name is { } accountName)
+        {
+            volumes.Add(new V1Volume
+            {
+                Name = "session",
+                Secret = new V1SecretVolumeSource { SecretName = accountName }
+            });
+
+            volumeMounts.Add(new V1VolumeMount
+            {
+                Name = "session",
+                MountPath = SessionDirectory,
+                ReadOnlyProperty = true
+            });
+        }
+
+        volumes.AddRange(bot.Spec.Pod?.Volumes ?? []);
+        volumeMounts.AddRange(bot.Spec.Pod?.VolumeMounts ?? []);
+
         deploy.Metadata.Name = bot.Name();
         deploy.Metadata.NamespaceProperty = bot.Namespace();
+        deploy.Metadata.Labels = labels;
 
-        deploy.Spec.Replicas = bot.Spec.Inactive is true ? 0 : 1;
-        deploy.Spec.Selector = new V1LabelSelector { MatchLabels = PodLabels(bot) };
+        deploy.Spec.Replicas = bot.Spec.Inactive is true || waitingForAccount ? 0 : 1;
+        // Never run two instances: a second login with the same account kicks the first one.
+        deploy.Spec.Strategy = new V1DeploymentStrategy { Type = "Recreate" };
+        deploy.Spec.Selector = new V1LabelSelector { MatchLabels = labels };
         deploy.Spec.Template = new V1PodTemplateSpec
         {
-            Metadata = new V1ObjectMeta { Labels = PodLabels(bot) },
+            Metadata = new V1ObjectMeta { Labels = labels, Annotations = annotations },
             Spec = new V1PodSpec
             {
                 NodeName = bot.Spec.Pod?.NodeName,
                 Affinity = bot.Spec.Pod?.Affinity,
                 NodeSelector = bot.Spec.Pod?.NodeSelector,
                 Tolerations = bot.Spec.Pod?.Tolerations,
-                ImagePullSecrets =
-                [
-                    new V1LocalObjectReference { Name = "dockerconfig" }
-                ],
-                Volumes = bot.Spec.Behaviors?.Select(b => new V1Volume
-                {
-                    Name = $"behavior-{b.BehaviorRef.Name}",
-                    ConfigMap = new V1ConfigMapVolumeSource { Name = b.BehaviorRef.Name }
-                }).Concat([
-                        new V1Volume { Name = "config", ConfigMap = new V1ConfigMapVolumeSource { Name = bot.Name() } }
-                    ]).Concat(bot.Spec.Auth?.AccountRef is not null
-                        ?
-                        [
-                            new V1Volume
-                            {
-                                Name = "account",
-                                Secret = new V1SecretVolumeSource { SecretName = bot.Spec.Auth.AccountRef.Name }
-                            }
-                        ]
-                        : [])
-                    .ToList(),
+                ImagePullSecrets = [new V1LocalObjectReference { Name = "dockerconfig" }],
+                AutomountServiceAccountToken = false,
+                Volumes = volumes,
                 Containers =
                 [
                     new V1Container
@@ -345,55 +537,24 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
                         Image = bot.Spec.Pod?.Image ?? ContainerImages.BotRunner,
                         ImagePullPolicy = bot.Spec.Pod?.ImagePullPolicy,
                         Resources = bot.Spec.Resources,
-                        VolumeMounts = bot.Spec.Behaviors?.Select(b => new V1VolumeMount
-                            {
-                                Name = $"behavior-{b.BehaviorRef.Name}",
-                                MountPath = $"/app/behaviors/{b.BehaviorRef.Name}",
-                            }).Concat([
-                                new V1VolumeMount
-                                {
-                                    Name = "config", MountPath = "/etc/bot/config.json", SubPath = "config.json"
-                                }
-                            ]).Concat(bot.Spec.Auth?.AccountRef is not null
-                                ?
-                                [
-                                    new V1VolumeMount
-                                    {
-                                        Name = "account",
-                                        MountPath = "/etc/bot/session/session.json",
-                                        SubPath = "session.json"
-                                    },
-                                    new V1VolumeMount
-                                    {
-                                        Name = "account",
-                                        MountPath = "/etc/bot/profile/profile.json",
-                                        SubPath = "profile.json"
-                                    },
-                                    new V1VolumeMount
-                                    {
-                                        Name = "account",
-                                        MountPath = "/etc/bot/entitlements/entitlements.json",
-                                        SubPath = "entitlements.json"
-                                    }
-                                ]
-                                : [])
-                            .Concat(bot.Spec.Auth?.EnableChatSigning is true
-                                ?
-                                [
-                                    new V1VolumeMount
-                                    {
-                                        Name = "account",
-                                        MountPath = "/etc/bot/certs/certificates.json",
-                                        SubPath = "certificates.json"
-                                    }
-                                ]
-                                : [])
-                            .ToList(),
-                        Ports =
+                        // MCC reads commands from stdin; Kobblestone.BotRunner owns it.
+                        Stdin = true,
+                        TerminationMessagePolicy = "FallbackToLogsOnError",
+                        Env =
                         [
-                            new V1ContainerPort { Name = "status", ContainerPort = 8080 },
-                            new V1ContainerPort { Name = "viewer", ContainerPort = 3000 }
-                        ]
+                            // Options of Kobblestone.BotRunner (BotRunnerOptions, prefix BOT_).
+                            new V1EnvVar { Name = "BOT_CONFIGDIRECTORY", Value = ConfigDirectory },
+                            new V1EnvVar { Name = "BOT_SCRIPTSDIRECTORY", Value = ScriptsDirectory },
+                            new V1EnvVar { Name = "BOT_SESSIONDIRECTORY", Value = SessionDirectory },
+                            new V1EnvVar { Name = "BOT_READYFILE", Value = ReadyFile },
+                            .. bot.Spec.Pod?.Env ?? []
+                        ],
+                        VolumeMounts = volumeMounts,
+                        ReadinessProbe = new V1Probe
+                        {
+                            Exec = new V1ExecAction { Command = ["test", "-f", ReadyFile] },
+                            PeriodSeconds = 5
+                        }
                     }
                 ]
             }
@@ -402,11 +563,101 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
         deploy.WithOwnerReference(bot);
     }
 
-    public Task<ReconciliationResult<V1Alpha1Bot>> DeletedAsync(V1Alpha1Bot entity, CancellationToken cancellationToken)
+    /// <summary>
+    /// Configuration layers: the operator's <c>ConfigMap</c> plus the referenced keys, in the order they are merged.
+    /// </summary>
+    private static List<V1VolumeProjection> ConfigSources(V1Alpha1Bot bot)
     {
-        return Task.FromResult(ReconciliationResult<V1Alpha1Bot>.Success(entity));
+        var sources = new List<V1VolumeProjection>
+        {
+            new()
+            {
+                ConfigMap = new V1ConfigMapProjection
+                {
+                    Name = bot.Name(),
+                    Items = new[] { "00-base.toml", "10-inline.toml", "30-scheduler.toml", "99-managed.toml" }
+                        .Where(key => key != "10-inline.toml" || bot.Spec.Config?.Inline is not null)
+                        .Select(key => new V1KeyToPath { Key = key, Path = key })
+                        .ToList()
+                }
+            }
+        };
+
+        var from = bot.Spec.Config?.From ?? [];
+
+        for (var i = 0; i < from.Count; i++)
+        {
+            sources.Add(Project(from[i].ConfigMapKeyRef, from[i].SecretKeyRef, $"20-from-{i:D3}.toml"));
+        }
+
+        return sources;
     }
 
-    private static Dictionary<string, string> PodLabels(V1Alpha1Bot bot) =>
-        new() { { "kobblestone.io/bot", bot.Name() } };
+    private static List<V1VolumeProjection> ScriptSources(V1Alpha1Bot bot)
+    {
+        var scripts = bot.Spec.Scripts ?? [];
+
+        var sources = new List<V1VolumeProjection>();
+
+        // Only with items: a projection without items would project all keys of the ConfigMap.
+        if (scripts.Any(s => s.Inline is not null))
+        {
+            sources.Add(new V1VolumeProjection
+            {
+                ConfigMap = new V1ConfigMapProjection
+                {
+                    Name = bot.Name(),
+                    Items = scripts
+                        .Where(s => s.Inline is not null)
+                        .Select(s => new V1KeyToPath { Key = ScriptKeyPrefix + s.Name, Path = s.Name })
+                        .ToList()
+                }
+            });
+        }
+
+        sources.AddRange(scripts
+            .Where(s => s.Inline is null)
+            .Select(s => Project(s.ConfigMapKeyRef, s.SecretKeyRef, s.Name)));
+
+        return sources;
+    }
+
+    private static V1VolumeProjection Project(V1ConfigMapKeySelector? configMapKey, V1SecretKeySelector? secretKey,
+        string path) =>
+        configMapKey is not null
+            ? new V1VolumeProjection
+            {
+                ConfigMap = new V1ConfigMapProjection
+                {
+                    Name = configMapKey.Name,
+                    Optional = configMapKey.Optional,
+                    Items = [new V1KeyToPath { Key = configMapKey.Key, Path = path }]
+                }
+            }
+            : new V1VolumeProjection
+            {
+                Secret = new V1SecretProjection
+                {
+                    Name = secretKey?.Name,
+                    Optional = secretKey?.Optional,
+                    Items = [new V1KeyToPath { Key = secretKey?.Key, Path = path }]
+                }
+            };
+
+    /// <summary>
+    /// Changes of the rendered configuration restart the bot. Changes of referenced <c>ConfigMap</c>s and
+    /// <c>Secret</c>s are not tracked: restart the bot to apply them (MCC reads its configuration once).
+    /// </summary>
+    private static string Hash(IDictionary<string, string>? data)
+    {
+        var builder = new StringBuilder();
+
+        foreach (var (key, value) in (data ?? new Dictionary<string, string>()).OrderBy(e => e.Key,
+                     StringComparer.Ordinal))
+        {
+            builder.Append(key).Append('\0').Append(value).Append('\0');
+        }
+
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())))[..16];
+    }
 }

@@ -43,7 +43,18 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: "`Account` represents a Microsoft that can be used to authenticate against online Minecraft servers.\r\nThey can be referenced by `Bot`s to connect to online servers.\r\n\r\nOnce an `Account` is created, an authorization flow (OAuth device flow) is initiated.\r\nThe field `status.deviceFlow` will contain all necessary information for users to complete the authorization.\r\n\r\nOnce authorization is completed, the `Account` will store access and refresh tokens securely within a managed `Secret`. \r\n\r\n`Account`s automatically refresh their session before it expires for as long as the authorization state is valid. "
+        description: |-
+          `Account` represents a Microsoft account that can be used to authenticate against online Minecraft servers.
+          They can be referenced by `Bot`s to connect to online servers.
+
+          Once an `Account` is created, an authorization flow (OAuth device flow) is initiated.
+          The field `status.deviceFlow` will contain all necessary information for users to complete the authorization.
+
+          Once authorization is completed, the session is stored in the `Secret` named like the `Account`
+          (type `kobblestone.io/minecraft-session`) in a standard, client independent format, so it can be mounted
+          by any workload. The refresh token is kept separately in the internal `<account>-credentials` `Secret`.
+
+          `Account`s automatically refresh their session before it expires for as long as the authorization state is valid.
         properties:
           spec:
             properties:
@@ -394,7 +405,7 @@ spec:
                         description: |-
                           Custom image for the authorization container.
 
-                          Default is `ghcr.io/kobblestoneio/account-auth`.
+                          Default is `ghcr.io/kobblestoneio/account-auth` (Kobblestone.AccountAuth).
                         externalDocs:
                           url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
                         nullable: true

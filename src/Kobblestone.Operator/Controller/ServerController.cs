@@ -283,14 +283,21 @@ public sealed class ServerController(
             .GetAsync<V1Alpha1Route>(server.Name(), server.Namespace(), cancellationToken)
             .ConfigureAwait(false);
 
-        switch (server.Spec.Route)
+        // Only the Route created for spec.route belongs to the Server. A Route that merely has the same name (e.g. one
+        // created by a user, or by a Network with the same name) must be neither deleted nor taken over.
+        if (route is not null && route.GetOwnerReference(server) is null)
         {
-            case null when route is not null:
-                await client.DeleteAsync(route, cancellationToken).ConfigureAwait(false);
+            return null;
+        }
 
-                return null;
-            case null:
-                return null;
+        if (server.Spec.Route is null)
+        {
+            if (route is not null)
+            {
+                await client.DeleteAsync(route, cancellationToken).ConfigureAwait(false);
+            }
+
+            return null;
         }
 
         if (route is null)

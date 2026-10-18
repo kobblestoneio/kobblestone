@@ -25,6 +25,10 @@
     <PackageReference Include="Tomlyn"/>
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Kobblestone.Sessions\Kobblestone.Sessions.csproj"/>
+  </ItemGroup>
+
   <!-- Flatten the generated kustomize directory into a single, applyable manifest -->
   <Target Name="PackageManifest" AfterTargets="Build" Condition="'$(GenerateOperatorResources)' == 'true'">
     <MakeDir Directories="$(ManifestOutDir)" Condition="!Exists('$(ManifestOutDir)')"/>

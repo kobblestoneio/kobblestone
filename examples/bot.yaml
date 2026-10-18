@@ -4,22 +4,48 @@ metadata:
   name: test-bot
   namespace: minecraft
 spec:
-  offlineUsername: TestBot
   target:
     targetRef:
+      kind: Server
       name: test-server
-  behaviors:
-    - behaviorRef:
-        name: test-behavior
-  viewer:
-    mode: FirstPerson
-    httpRoute:
-      hostnames:
-        - bot.example.com
-      parentRefs:
-        - name: private
-          namespace: private-gateway
-          sectionName: http
+  # Offline servers only. For online servers, reference an authorized Account instead:
+  # auth:
+  #   accountRef:
+  #     name: test-account
+  #   signChat: true
+  offlineUsername: TestBot
+  config:
+    # Minecraft-Console-Client configuration (TOML, as in MinecraftClient.ini)
+    inline: |
+      [ChatBot.AutoRespond]
+      Enabled = false
+
+      [ChatBot.AntiAFK]
+      Enabled = true
+  scripts:
+    - name: greet.txt
+      runOnLogin: true
+      inline: |
+        send Hello from Kobblestone!
+    - name: Hello.cs
+      runOnLogin: true
+      inline: |
+        //MCCScript 1.0
+
+        MCC.LoadBot(new Hello());
+
+        //MCCScript Extensions
+
+        public class Hello : ChatBot
+        {
+            public override void GetText(string text)
+            {
+                if (GetVerbatim(text).Contains("ping"))
+                {
+                    SendText("pong");
+                }
+            }
+        }
   resources:
     limits:
       memory: 500Mi

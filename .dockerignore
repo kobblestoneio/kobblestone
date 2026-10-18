@@ -38,6 +38,3 @@ manifests/
 **/node_modules/
 README.md
 docs/
-
-**/bot-runner/
-**/account-auth/

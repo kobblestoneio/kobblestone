@@ -12,7 +12,6 @@ resources:
 - backups_kobblestone_io.yaml
 - backuprepos_kobblestone_io.yaml
 - bots_kobblestone_io.yaml
-- botbehaviors_kobblestone_io.yaml
 - commands_kobblestone_io.yaml
 - commandgroups_kobblestone_io.yaml
 - networks_kobblestone_io.yaml

@@ -1,14 +1,17 @@
 <Solution>
   <Folder Name="/Changelog/">
     <File Path="../CHANGELOG/CHANGELOG-0.1.md" />
+    <File Path="../CHANGELOG/CHANGELOG-0.2.md" />
     <File Path="../CHANGELOG/README.md" />
+  </Folder>
+  <Folder Name="/Docs/">
+    <File Path="../docs/design/0001-accounts-and-bots-on-mcc.md" />
   </Folder>
   <Folder Name="/Examples/">
     <File Path="../examples/account.yaml" />
     <File Path="../examples/backup.yaml" />
     <File Path="../examples/backuprepo.yaml" />
     <File Path="../examples/bot.yaml" />
-    <File Path="../examples/botbehavior.yaml" />
     <File Path="../examples/command.yaml" />
     <File Path="../examples/commandgroup.yaml" />
     <File Path="../examples/network.yaml" />
@@ -34,5 +37,8 @@
     <File Path="../LICENSE" />
     <File Path="../README.md" />
   </Folder>
+  <Project Path="Kobblestone.AccountAuth/Kobblestone.AccountAuth.csproj" />
+  <Project Path="Kobblestone.BotRunner/Kobblestone.BotRunner.csproj" />
   <Project Path="Kobblestone.Operator/Kobblestone.Operator.csproj" />
+  <Project Path="Kobblestone.Sessions/Kobblestone.Sessions.csproj" />
 </Solution>

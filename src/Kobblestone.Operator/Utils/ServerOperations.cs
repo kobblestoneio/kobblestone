@@ -92,10 +92,6 @@ public static class ServerOperations
     public static bool RequiresStoppedServer(this V1Job job) =>
         job.GetLabel(RestoreLabel) is not null || job.GetLabel(BackupModeLabel) is BackupModeOffline;
 
-    public static bool IsFinished(this V1Job job) =>
-        job.Status?.Conditions?.Any(c => c.Type is "Complete" or "Failed" && c.Status is "True")
-            is true;
-
     public static bool TargetsServer(
         this V1TypedLocalObjectReference targetRef,
         string serverName

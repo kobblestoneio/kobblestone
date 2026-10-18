@@ -14,6 +14,29 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - description: |-
+        Current phase of the `Bot`.
+
+        Values:
+        - `Inactive`: The `Bot` is inactive (`spec.inactive`).
+        - `Pending`: The `Bot` is starting or waiting for its `Account`.
+        - `Connected`: The `Bot` joined its target.
+        - `Disconnected`: The `Bot` lost its connection (kicked, connection lost or login rejected) and is
+          restarted with backoff. `message` contains the reason.
+      jsonPath: .status.phase
+      name: Status
+      priority: 0
+      type: string
+    - description: Message explaining the current state of the `Bot`.
+      jsonPath: .status.message
+      name: Message
+      priority: 0
+      type: string
+    - description: Resolved address (`host:port`) of the target.
+      jsonPath: .status.address
+      name: Target
+      priority: 0
+      type: string
     - jsonPath: .spec.auth.accountRef.name
       name: Account
       priority: 0
@@ -22,11 +45,14 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          A `Bot` represents a single instance of a Minecraft bot.
+          A `Bot` is a single [Minecraft-Console-Client](https://github.com/MCCTeam/Minecraft-Console-Client) (MCC)
+          instance connected to exactly one target.
 
-          If the `Bot` should connect to an online server, it needs to reference an authorized `Account` (which is allowed to access the server).
+          If the `Bot` should connect to an online server, it needs to reference an authorized `Account` (which is
+          allowed to access the server). Otherwise it joins with `offlineUsername`.
 
-          The logic of `Bot`s is programmed by the `BotBehavior`s they are referencing (`behaviors`).
+          The `Bot` is programmed with MCC's own means: its configuration (`config`, TOML as in `MinecraftClient.ini`,
+          e.g. to enable built-in ChatBots) and scripts (`scripts`, MCC command scripts or C# scripts).
         properties:
           spec:
             properties:
@@ -39,16 +65,17 @@ spec:
                 properties:
                   accountRef:
                     description: |-
-                      Reference to an `Account` object this `Bot` will use for authentication.
+                      Reference to an `Account` in the same namespace this `Bot` authenticates with.
 
-                      **Note**: The `Account` has to be authorized (`status.phase=Authorized`), otherwise the server connection will fail.
+                      The `Bot` mounts the `Account`'s session `Secret` and is restarted whenever the session is refreshed.
+                      While the `Account` is not authorized, the `Bot` stays `Pending`.
                     properties:
                       name:
                         type: string
                     type: object
-                  enableChatSigning:
+                  signChat:
                     description: |-
-                      If enabled, profile certificates from the referenced `Account` will be used to sign chat messages.
+                      Whether chat messages are signed with the `Account`'s profile key (secure chat).
 
                       Default is `false`.
                     nullable: true
@@ -57,29 +84,65 @@ spec:
                 - accountRef
                 title: Authentication
                 type: object
-              behaviors:
-                description: Behaviors that should apply to this `Bot`.
-                items:
-                  properties:
-                    behaviorRef:
-                      description: Reference to the `BotBehavior` object.
-                      properties:
-                        name:
-                          type: string
-                      type: object
-                    parameters:
-                      additionalProperties:
-                        type: object
-                        x-kubernetes-preserve-unknown-fields: true
-                      description: Parameters forwarded to the `BotBehavior`.
-                      nullable: true
-                      type: object
-                  required:
-                  - behaviorRef
-                  type: object
+              config:
+                description: |-
+                  MCC configuration in TOML (the format of `MinecraftClient.ini`).
+
+                  Layers are merged in this order, later layers win: generated defaults, `inline`, `from` (in order),
+                  generated `ScriptScheduler` tasks for `scripts` with `runOnLogin`, and finally the settings
+                  managed by Kobblestone (`Main.General.Account`, `Main.General.Server`, `Main.General.AccountType`,
+                  session caches and `Signature`), which cannot be overridden.
+
+                  Tables are merged, arrays of tables (e.g. `ChatBot.ScriptScheduler.TaskList`) are concatenated.
+                externalDocs:
+                  url: https://mccteam.github.io/guide/configuration.html
                 nullable: true
-                title: Behavior
-                type: array
+                properties:
+                  from:
+                    description: |-
+                      MCC configuration (TOML) from keys of `ConfigMap`s or `Secret`s, merged after `inline` in order.
+
+                      Use `Secret`s for confidential settings (e.g. tokens of chat bridges); they are mounted into the
+                      `Bot` directly and never read by the operator.
+                    items:
+                      properties:
+                        configMapKeyRef:
+                          description: Key of a `ConfigMap` in the same namespace.
+                          externalDocs:
+                            url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#environment-variables
+                          nullable: true
+                          properties:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                            optional:
+                              nullable: true
+                              type: boolean
+                          type: object
+                        secretKeyRef:
+                          description: Key of a `Secret` in the same namespace.
+                          externalDocs:
+                            url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#environment-variables
+                          nullable: true
+                          properties:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                            optional:
+                              nullable: true
+                              type: boolean
+                          type: object
+                      type: object
+                    nullable: true
+                    type: array
+                  inline:
+                    description: Inline MCC configuration (TOML).
+                    nullable: true
+                    type: string
+                title: Configuration
+                type: object
               inactive:
                 description: |-
                   Whether the `Bot` should be inactive (not running).
@@ -89,13 +152,13 @@ spec:
                 type: boolean
               offlineUsername:
                 description: |-
-                  Username of the `Bot` when connecting without authentication (offline).
+                  Username of the `Bot` when connecting without authentication (offline servers).
 
-                  Default is `Player`.
+                  Ignored when `auth` is set. Default is the name of the `Bot`.
                 nullable: true
                 type: string
               pod:
-                description: Configures the spec of the managed `Pod` object.
+                description: Configures the spec of the managed `Pod`.
                 nullable: true
                 properties:
                   affinity:
@@ -433,8 +496,75 @@ spec:
                             type: array
                         type: object
                     type: object
+                  env:
+                    description: Additional environment variables of the bot container (e.g. for C# scripts).
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#environment-variables
+                    items:
+                      properties:
+                        name:
+                          type: string
+                        value:
+                          type: string
+                        valueFrom:
+                          properties:
+                            configMapKeyRef:
+                              properties:
+                                key:
+                                  type: string
+                                name:
+                                  type: string
+                                optional:
+                                  nullable: true
+                                  type: boolean
+                              type: object
+                            fieldRef:
+                              properties:
+                                apiVersion:
+                                  type: string
+                                fieldPath:
+                                  type: string
+                              type: object
+                            fileKeyRef:
+                              properties:
+                                key:
+                                  type: string
+                                optional:
+                                  nullable: true
+                                  type: boolean
+                                path:
+                                  type: string
+                                volumeName:
+                                  type: string
+                              type: object
+                            resourceFieldRef:
+                              properties:
+                                containerName:
+                                  type: string
+                                divisor:
+                                  type: string
+                                resource:
+                                  type: string
+                              type: object
+                            secretKeyRef:
+                              properties:
+                                key:
+                                  type: string
+                                name:
+                                  type: string
+                                optional:
+                                  nullable: true
+                                  type: boolean
+                              type: object
+                          type: object
+                      type: object
+                    nullable: true
+                    type: array
                   image:
-                    description: Allows specifying a custom image for the `Bot` pod.
+                    description: |-
+                      Custom image for the bot container (e.g. to bundle another MCC version).
+
+                      Default is `ghcr.io/kobblestoneio/bot-runner`.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
                     nullable: true
@@ -480,12 +610,776 @@ spec:
                       type: object
                     nullable: true
                     type: array
+                  volumeMounts:
+                    description: |-
+                      Additional volume mounts of the bot container. MCC's working directory is `/data`, so mount paths
+                      below it (e.g. `/data/files`) are accessible to scripts with relative paths.
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#volumes-1
+                    items:
+                      properties:
+                        bindMountOptions:
+                          items:
+                            type: string
+                          type: array
+                        mountPath:
+                          type: string
+                        mountPropagation:
+                          type: string
+                        name:
+                          type: string
+                        readOnly:
+                          nullable: true
+                          type: boolean
+                        recursiveReadOnly:
+                          type: string
+                        subPath:
+                          type: string
+                        subPathExpr:
+                          type: string
+                      type: object
+                    nullable: true
+                    type: array
+                  volumes:
+                    description: Additional volumes of the bot `Pod`, e.g. a `PersistentVolumeClaim` with data files for scripts.
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#volumes
+                    items:
+                      properties:
+                        awsElasticBlockStore:
+                          properties:
+                            fsType:
+                              type: string
+                            partition:
+                              format: int32
+                              nullable: true
+                              type: integer
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                            volumeID:
+                              type: string
+                          type: object
+                        azureDisk:
+                          properties:
+                            cachingMode:
+                              type: string
+                            diskName:
+                              type: string
+                            diskURI:
+                              type: string
+                            fsType:
+                              type: string
+                            kind:
+                              type: string
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                          type: object
+                        azureFile:
+                          properties:
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                            secretName:
+                              type: string
+                            shareName:
+                              type: string
+                          type: object
+                        cephfs:
+                          properties:
+                            monitors:
+                              items:
+                                type: string
+                              type: array
+                            path:
+                              type: string
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                            secretFile:
+                              type: string
+                            secretRef:
+                              properties:
+                                name:
+                                  type: string
+                              type: object
+                            user:
+                              type: string
+                          type: object
+                        cinder:
+                          properties:
+                            fsType:
+                              type: string
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                            secretRef:
+                              properties:
+                                name:
+                                  type: string
+                              type: object
+                            volumeID:
+                              type: string
+                          type: object
+                        configMap:
+                          properties:
+                            defaultMode:
+                              format: int32
+                              nullable: true
+                              type: integer
+                            defaultUser:
+                              format: int64
+                              nullable: true
+                              type: integer
+                            items:
+                              items:
+                                properties:
+                                  key:
+                                    type: string
+                                  mode:
+                                    format: int32
+                                    nullable: true
+                                    type: integer
+                                  path:
+                                    type: string
+                                  user:
+                                    format: int64
+                                    nullable: true
+                                    type: integer
+                                type: object
+                              type: array
+                            name:
+                              type: string
+                            optional:
+                              nullable: true
+                              type: boolean
+                          type: object
+                        csi:
+                          properties:
+                            driver:
+                              type: string
+                            fsType:
+                              type: string
+                            nodePublishSecretRef:
+                              properties:
+                                name:
+                                  type: string
+                              type: object
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                            volumeAttributes:
+                              additionalProperties:
+                                type: string
+                              type: object
+                          type: object
+                        downwardAPI:
+                          properties:
+                            defaultMode:
+                              format: int32
+                              nullable: true
+                              type: integer
+                            defaultUser:
+                              format: int64
+                              nullable: true
+                              type: integer
+                            items:
+                              items:
+                                properties:
+                                  fieldRef:
+                                    properties:
+                                      apiVersion:
+                                        type: string
+                                      fieldPath:
+                                        type: string
+                                    type: object
+                                  mode:
+                                    format: int32
+                                    nullable: true
+                                    type: integer
+                                  path:
+                                    type: string
+                                  resourceFieldRef:
+                                    properties:
+                                      containerName:
+                                        type: string
+                                      divisor:
+                                        type: string
+                                      resource:
+                                        type: string
+                                    type: object
+                                  user:
+                                    format: int64
+                                    nullable: true
+                                    type: integer
+                                type: object
+                              type: array
+                          type: object
+                        emptyDir:
+                          properties:
+                            medium:
+                              type: string
+                            mode:
+                              format: int32
+                              nullable: true
+                              type: integer
+                            sizeLimit:
+                              type: string
+                          type: object
+                        ephemeral:
+                          properties:
+                            volumeClaimTemplate:
+                              properties:
+                                metadata:
+                                  type: object
+                                spec:
+                                  properties:
+                                    accessModes:
+                                      items:
+                                        type: string
+                                      type: array
+                                    dataSource:
+                                      properties:
+                                        apiGroup:
+                                          type: string
+                                        kind:
+                                          type: string
+                                        name:
+                                          type: string
+                                      type: object
+                                    dataSourceRef:
+                                      properties:
+                                        apiGroup:
+                                          type: string
+                                        kind:
+                                          type: string
+                                        name:
+                                          type: string
+                                        namespace:
+                                          type: string
+                                      type: object
+                                    resources:
+                                      properties:
+                                        limits:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                        requests:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                      type: object
+                                    selector:
+                                      properties:
+                                        matchExpressions:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                              operator:
+                                                type: string
+                                              values:
+                                                items:
+                                                  type: string
+                                                type: array
+                                            type: object
+                                          type: array
+                                        matchLabels:
+                                          additionalProperties:
+                                            type: string
+                                          type: object
+                                      type: object
+                                    storageClassName:
+                                      type: string
+                                    volumeAttributesClassName:
+                                      type: string
+                                    volumeMode:
+                                      type: string
+                                    volumeName:
+                                      type: string
+                                  type: object
+                              type: object
+                          type: object
+                        fc:
+                          properties:
+                            fsType:
+                              type: string
+                            lun:
+                              format: int32
+                              nullable: true
+                              type: integer
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                            targetWWNs:
+                              items:
+                                type: string
+                              type: array
+                            wwids:
+                              items:
+                                type: string
+                              type: array
+                          type: object
+                        flexVolume:
+                          properties:
+                            driver:
+                              type: string
+                            fsType:
+                              type: string
+                            options:
+                              additionalProperties:
+                                type: string
+                              type: object
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                            secretRef:
+                              properties:
+                                name:
+                                  type: string
+                              type: object
+                          type: object
+                        flocker:
+                          properties:
+                            datasetName:
+                              type: string
+                            datasetUUID:
+                              type: string
+                          type: object
+                        gcePersistentDisk:
+                          properties:
+                            fsType:
+                              type: string
+                            partition:
+                              format: int32
+                              nullable: true
+                              type: integer
+                            pdName:
+                              type: string
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                          type: object
+                        gitRepo:
+                          properties:
+                            directory:
+                              type: string
+                            repository:
+                              type: string
+                            revision:
+                              type: string
+                          type: object
+                        glusterfs:
+                          properties:
+                            endpoints:
+                              type: string
+                            path:
+                              type: string
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                          type: object
+                        hostPath:
+                          properties:
+                            path:
+                              type: string
+                            type:
+                              type: string
+                          type: object
+                        image:
+                          properties:
+                            pullPolicy:
+                              type: string
+                            reference:
+                              type: string
+                          type: object
+                        iscsi:
+                          properties:
+                            chapAuthDiscovery:
+                              nullable: true
+                              type: boolean
+                            chapAuthSession:
+                              nullable: true
+                              type: boolean
+                            fsType:
+                              type: string
+                            initiatorName:
+                              type: string
+                            iqn:
+                              type: string
+                            iscsiInterface:
+                              type: string
+                            lun:
+                              format: int32
+                              type: integer
+                            portals:
+                              items:
+                                type: string
+                              type: array
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                            secretRef:
+                              properties:
+                                name:
+                                  type: string
+                              type: object
+                            targetPortal:
+                              type: string
+                          type: object
+                        name:
+                          type: string
+                        nfs:
+                          properties:
+                            path:
+                              type: string
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                            server:
+                              type: string
+                          type: object
+                        persistentVolumeClaim:
+                          properties:
+                            claimName:
+                              type: string
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                          type: object
+                        photonPersistentDisk:
+                          properties:
+                            fsType:
+                              type: string
+                            pdID:
+                              type: string
+                          type: object
+                        portworxVolume:
+                          properties:
+                            fsType:
+                              type: string
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                            volumeID:
+                              type: string
+                          type: object
+                        projected:
+                          properties:
+                            defaultMode:
+                              format: int32
+                              nullable: true
+                              type: integer
+                            defaultUser:
+                              format: int64
+                              nullable: true
+                              type: integer
+                            sources:
+                              items:
+                                properties:
+                                  clusterTrustBundle:
+                                    properties:
+                                      labelSelector:
+                                        properties:
+                                          matchExpressions:
+                                            items:
+                                              properties:
+                                                key:
+                                                  type: string
+                                                operator:
+                                                  type: string
+                                                values:
+                                                  items:
+                                                    type: string
+                                                  type: array
+                                              type: object
+                                            type: array
+                                          matchLabels:
+                                            additionalProperties:
+                                              type: string
+                                            type: object
+                                        type: object
+                                      name:
+                                        type: string
+                                      optional:
+                                        nullable: true
+                                        type: boolean
+                                      path:
+                                        type: string
+                                      signerName:
+                                        type: string
+                                      user:
+                                        format: int64
+                                        nullable: true
+                                        type: integer
+                                    type: object
+                                  configMap:
+                                    properties:
+                                      items:
+                                        items:
+                                          properties:
+                                            key:
+                                              type: string
+                                            mode:
+                                              format: int32
+                                              nullable: true
+                                              type: integer
+                                            path:
+                                              type: string
+                                            user:
+                                              format: int64
+                                              nullable: true
+                                              type: integer
+                                          type: object
+                                        type: array
+                                      name:
+                                        type: string
+                                      optional:
+                                        nullable: true
+                                        type: boolean
+                                    type: object
+                                  downwardAPI:
+                                    properties:
+                                      items:
+                                        items:
+                                          properties:
+                                            fieldRef:
+                                              properties:
+                                                apiVersion:
+                                                  type: string
+                                                fieldPath:
+                                                  type: string
+                                              type: object
+                                            mode:
+                                              format: int32
+                                              nullable: true
+                                              type: integer
+                                            path:
+                                              type: string
+                                            resourceFieldRef:
+                                              properties:
+                                                containerName:
+                                                  type: string
+                                                divisor:
+                                                  type: string
+                                                resource:
+                                                  type: string
+                                              type: object
+                                            user:
+                                              format: int64
+                                              nullable: true
+                                              type: integer
+                                          type: object
+                                        type: array
+                                    type: object
+                                  podCertificate:
+                                    properties:
+                                      certificateChainPath:
+                                        type: string
+                                      credentialBundlePath:
+                                        type: string
+                                      keyPath:
+                                        type: string
+                                      keyType:
+                                        type: string
+                                      maxExpirationSeconds:
+                                        format: int32
+                                        nullable: true
+                                        type: integer
+                                      signerName:
+                                        type: string
+                                      user:
+                                        format: int64
+                                        nullable: true
+                                        type: integer
+                                      userAnnotations:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
+                                    type: object
+                                  secret:
+                                    properties:
+                                      items:
+                                        items:
+                                          properties:
+                                            key:
+                                              type: string
+                                            mode:
+                                              format: int32
+                                              nullable: true
+                                              type: integer
+                                            path:
+                                              type: string
+                                            user:
+                                              format: int64
+                                              nullable: true
+                                              type: integer
+                                          type: object
+                                        type: array
+                                      name:
+                                        type: string
+                                      optional:
+                                        nullable: true
+                                        type: boolean
+                                    type: object
+                                  serviceAccountToken:
+                                    properties:
+                                      audience:
+                                        type: string
+                                      expirationSeconds:
+                                        format: int64
+                                        nullable: true
+                                        type: integer
+                                      path:
+                                        type: string
+                                      user:
+                                        format: int64
+                                        nullable: true
+                                        type: integer
+                                    type: object
+                                type: object
+                              type: array
+                          type: object
+                        quobyte:
+                          properties:
+                            group:
+                              type: string
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                            registry:
+                              type: string
+                            tenant:
+                              type: string
+                            user:
+                              type: string
+                            volume:
+                              type: string
+                          type: object
+                        rbd:
+                          properties:
+                            fsType:
+                              type: string
+                            image:
+                              type: string
+                            keyring:
+                              type: string
+                            monitors:
+                              items:
+                                type: string
+                              type: array
+                            pool:
+                              type: string
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                            secretRef:
+                              properties:
+                                name:
+                                  type: string
+                              type: object
+                            user:
+                              type: string
+                          type: object
+                        scaleIO:
+                          properties:
+                            fsType:
+                              type: string
+                            gateway:
+                              type: string
+                            protectionDomain:
+                              type: string
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                            secretRef:
+                              properties:
+                                name:
+                                  type: string
+                              type: object
+                            sslEnabled:
+                              nullable: true
+                              type: boolean
+                            storageMode:
+                              type: string
+                            storagePool:
+                              type: string
+                            system:
+                              type: string
+                            volumeName:
+                              type: string
+                          type: object
+                        secret:
+                          properties:
+                            defaultMode:
+                              format: int32
+                              nullable: true
+                              type: integer
+                            defaultUser:
+                              format: int64
+                              nullable: true
+                              type: integer
+                            items:
+                              items:
+                                properties:
+                                  key:
+                                    type: string
+                                  mode:
+                                    format: int32
+                                    nullable: true
+                                    type: integer
+                                  path:
+                                    type: string
+                                  user:
+                                    format: int64
+                                    nullable: true
+                                    type: integer
+                                type: object
+                              type: array
+                            optional:
+                              nullable: true
+                              type: boolean
+                            secretName:
+                              type: string
+                          type: object
+                        storageos:
+                          properties:
+                            fsType:
+                              type: string
+                            readOnly:
+                              nullable: true
+                              type: boolean
+                            secretRef:
+                              properties:
+                                name:
+                                  type: string
+                              type: object
+                            volumeName:
+                              type: string
+                            volumeNamespace:
+                              type: string
+                          type: object
+                        vsphereVolume:
+                          properties:
+                            fsType:
+                              type: string
+                            storagePolicyID:
+                              type: string
+                            storagePolicyName:
+                              type: string
+                            volumePath:
+                              type: string
+                          type: object
+                      type: object
+                    nullable: true
+                    type: array
                 title: Pod
                 type: object
               resources:
-                description: Resource requirements for the `Bot` pod.
+                description: Resource requirements of the `Bot` container.
                 externalDocs:
-                  url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                  url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources
                 nullable: true
                 properties:
                   claims:
@@ -507,57 +1401,74 @@ spec:
                     type: object
                 title: Resources
                 type: object
-              service:
-                description: Configures the `Bot`s `Service`.
-                nullable: true
-                properties:
-                  annotations:
-                    additionalProperties:
+              scripts:
+                description: |-
+                  Script files placed in MCC's working directory, so they can be run with `/script <name>` or by
+                  the `ScriptScheduler`.
+
+                  Files ending with `.cs` are MCC C# scripts (starting with `//MCCScript 1.0`), all others MCC
+                  command scripts.
+                externalDocs:
+                  url: https://mccteam.github.io/guide/creating-bots.html
+                items:
+                  properties:
+                    configMapKeyRef:
+                      description: Key of a `ConfigMap` in the same namespace holding the script.
+                      nullable: true
+                      properties:
+                        key:
+                          type: string
+                        name:
+                          type: string
+                        optional:
+                          nullable: true
+                          type: boolean
+                      type: object
+                    inline:
+                      description: |-
+                        Inline content of the script.
+
+                        Exactly one of `inline`, `configMapKeyRef` and `secretKeyRef` must be set.
+                      nullable: true
                       type: string
-                    description: Annotations added to the `Bot`'s `Service`, e.g. to configure a load balancer.
-                    externalDocs:
-                      url: https://kubernetes.io/docs/reference/kubernetes-api/definitions/object-meta-v1-meta/#ObjectMeta
-                    nullable: true
-                    type: object
-                  externalTrafficPolicy:
-                    description: External traffic policy of the `Bot`'s `Service`.
-                    externalDocs:
-                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
-                    nullable: true
-                    type: string
-                  ipFamilyPolicy:
-                    description: IP family policy of the `Bot`'s `Service`.
-                    externalDocs:
-                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
-                    nullable: true
-                    type: string
-                  port:
-                    description: |-
-                      Port of the `Bot`s status endpoint.
+                    name:
+                      description: File name of the script in MCC's working directory, e.g. `farm.cs` or `greet.txt`.
+                      pattern: ^[A-Za-z0-9][A-Za-z0-9._-]*$
+                      type: string
+                    runOnLogin:
+                      description: |-
+                        Whether the script is run after every login (via MCC's `ScriptScheduler`).
 
-                      Default is `8080`.
-                    format: int32
-                    nullable: true
-                    type: integer
-                  type:
-                    description: |-
-                      Type of the `Bot`'s `Service`, e.g. `ClusterIP` or `LoadBalancer`.
-
-                      Default is `ClusterIP`.
-                    externalDocs:
-                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/service-v1/#ServiceSpec
-                    nullable: true
-                    type: string
-                title: Service
-                type: object
+                        Default is `false`.
+                      nullable: true
+                      type: boolean
+                    secretKeyRef:
+                      description: Key of a `Secret` in the same namespace holding the script.
+                      nullable: true
+                      properties:
+                        key:
+                          type: string
+                        name:
+                          type: string
+                        optional:
+                          nullable: true
+                          type: boolean
+                      type: object
+                  required:
+                  - name
+                  type: object
+                nullable: true
+                title: Scripts
+                type: array
               target:
-                description: Target this `Bot` should be connected to.
+                description: Target this `Bot` connects to.
                 properties:
                   host:
                     description: |-
                       Custom host (IP or hostname) of the target server.
 
-                      This is required when `targetRef` is not specified. Otherwise, it overrides the target host implied by `targetRef`.
+                      This is required when `targetRef` is not specified. Otherwise, it overrides the target host implied
+                      by `targetRef`.
                     nullable: true
                     type: string
                   port:
@@ -565,7 +1476,11 @@ spec:
                       Custom port of the target server.
 
                       Can be specified together with `targetRef` to override the implied port.
+                    exclusiveMaximum: false
+                    exclusiveMinimum: false
                     format: int32
+                    maximum: 65535.0
+                    minimum: 1.0
                     nullable: true
                     type: integer
                   targetRef:
@@ -574,7 +1489,8 @@ spec:
 
                       This may be one of the following types: `Server`, `Network`.
 
-                      If you want to connect through `Router` instances, you must set the `host` parameter to a hostname that routes accordingly.
+                      If you want to connect through `Router` instances, you must set the `host` parameter to a hostname
+                      that routes accordingly.
                     nullable: true
                     properties:
                       apiGroup:
@@ -588,158 +1504,65 @@ spec:
                     type: object
                 title: Target
                 type: object
-              viewer:
-                description: Configures a live viewer that exposes the bots view as a web page via HTTP.
-                nullable: true
-                properties:
-                  httpRoute:
-                    description: |-
-                      Configures an optional `HTTPRoute` exposing the live viewer.
-
-                      **Note**: Using `HTTPRoute` requires at least [Gateway API v0.5.0](https://gateway-api.sigs.k8s.io/reference/api-types/httproute/) to be installed on your cluster.
-                    nullable: true
-                    properties:
-                      hostnames:
-                        description: Hostnames for the `HTTPRoute`.
-                        items:
-                          type: string
-                        nullable: true
-                        type: array
-                        x-kubernetes-list-type: set
-                      matches:
-                        description: |-
-                          Custom matches for the `HTTPRoute`.
-
-                          If not specified all requests are matched.
-                        items:
-                          properties:
-                            headers:
-                              items:
-                                properties:
-                                  name:
-                                    type: string
-                                  type:
-                                    enum:
-                                    - Exact
-                                    - RegularExpression
-                                    nullable: true
-                                    type: string
-                                  value:
-                                    type: string
-                                type: object
-                              nullable: true
-                              type: array
-                            method:
-                              enum:
-                              - GET
-                              - HEAD
-                              - POST
-                              - PUT
-                              - DELETE
-                              - CONNECT
-                              - OPTIONS
-                              - TRACE
-                              - PATCH
-                              nullable: true
-                              type: string
-                            path:
-                              nullable: true
-                              properties:
-                                type:
-                                  enum:
-                                  - Exact
-                                  - PathPrefix
-                                  - RegularExpression
-                                  nullable: true
-                                  type: string
-                                value:
-                                  nullable: true
-                                  type: string
-                              type: object
-                            queryParams:
-                              items:
-                                properties:
-                                  name:
-                                    type: string
-                                  type:
-                                    enum:
-                                    - Exact
-                                    - RegularExpression
-                                    nullable: true
-                                    type: string
-                                  value:
-                                    type: string
-                                type: object
-                              nullable: true
-                              type: array
-                          type: object
-                        nullable: true
-                        type: array
-                      parentRefs:
-                        description: References to gateways the `HTTPRoute` should attach to.
-                        items:
-                          properties:
-                            group:
-                              nullable: true
-                              type: string
-                            kind:
-                              nullable: true
-                              type: string
-                            name:
-                              type: string
-                            namespace:
-                              nullable: true
-                              type: string
-                            port:
-                              format: int32
-                              nullable: true
-                              type: integer
-                            sectionName:
-                              nullable: true
-                              type: string
-                          type: object
-                        nullable: true
-                        type: array
-                    type: object
-                  mode:
-                    description: |-
-                      Determines in which mode mode the viewer launches.
-
-                      Default is `BirdsEye`.
-                    enum:
-                    - BirdsEye
-                    - FirstPerson
-                    nullable: true
-                    type: string
-                  port:
-                    description: |-
-                      Port of the viewer exposed on the `Bot`s `Service`.
-
-                      Default is `3000`.
-                    format: int32
-                    nullable: true
-                    type: integer
-                  viewDistance:
-                    description: |-
-                      View distance of the viewer.
-
-                      Default is `4`.
-                    exclusiveMinimum: false
-                    format: int32
-                    minimum: 1.0
-                    nullable: true
-                    type: integer
-                title: Viewer
-                type: object
             required:
             - target
             type: object
           status:
             properties:
-              httpRoute:
-                description: Whether an `HTTPRoute` exists.
+              address:
+                description: Resolved address (`host:port`) of the target.
                 nullable: true
-                type: boolean
+                type: string
+              conditions:
+                description: Conditions of the `Bot`.
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      nullable: true
+                      type: integer
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  type: object
+                type: array
+              message:
+                description: Message explaining the current state of the `Bot`.
+                nullable: true
+                type: string
+              phase:
+                description: |-
+                  Current phase of the `Bot`.
+
+                  Values:
+                  - `Inactive`: The `Bot` is inactive (`spec.inactive`).
+                  - `Pending`: The `Bot` is starting or waiting for its `Account`.
+                  - `Connected`: The `Bot` joined its target.
+                  - `Disconnected`: The `Bot` lost its connection (kicked, connection lost or login rejected) and is
+                    restarted with backoff. `message` contains the reason.
+                enum:
+                - Pending
+                - Inactive
+                - Connected
+                - Disconnected
+                type: string
+              restarts:
+                description: How often the bot container was restarted, e.g. after disconnects.
+                format: int32
+                nullable: true
+                type: integer
+              username:
+                description: Username the `Bot` joins with.
+                nullable: true
+                type: string
             type: object
         required:
         - spec

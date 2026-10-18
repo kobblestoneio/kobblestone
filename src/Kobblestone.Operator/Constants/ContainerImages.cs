@@ -11,9 +11,9 @@ public static class ContainerImages
 
     public const string Backup = "itzg/mc-backup:2026.10.0";
 
-    public const string AccountAuth = "ghcr.io/kobblestoneio/account-auth:0.1.0";
+    public const string AccountAuth = "ghcr.io/kobblestoneio/account-auth:0.2.0-alpha";
 
-    public const string BotRunner = "ghcr.io/kobblestoneio/bot-runner:0.1.0";
+    public const string BotRunner = "ghcr.io/kobblestoneio/bot-runner:0.2.0-alpha";
 
     /// <summary>
     /// Used by backup, restore and cleanup Jobs for plain file operations (sh, ls, tar, mv, rm).

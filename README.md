@@ -1,44 +1,94 @@
-## What is Kobblestone?
+<div align="center">
 
-Kobblestone allows you to manage Minecraft server infrastructure on Kubernetes through custom resource types, turning
-Minecraft into a first-class citizen of Kubernetes.
+<img src="docs/assets/hero.svg" alt="" width="180">
 
-- [Features](#features)
-- [CRD Overview](#crd-overview)
+# Kobblestone
+
+**Run Minecraft the Kubernetes way.**
+
+[![License](https://img.shields.io/badge/license-Apache%202.0-7ba843)](LICENSE)
+[![API version](https://img.shields.io/badge/api-v1alpha1-d9894a)](https://doc.crds.dev/github.com/kobblestoneio/kobblestone)
+[![Status](https://img.shields.io/badge/status-alpha-d9894a)](#getting-started)
+
+[Website](https://kobblestone.io) · [Docs](https://kobblestone.io/docs) · [CRD reference](https://doc.crds.dev/github.com/kobblestoneio/kobblestone) · [Changelog](CHANGELOG)
+
+</div>
+
+Kobblestone is an open-source operator that turns Minecraft servers, proxies, routing, backups and bots into custom
+resources. Describe your world in YAML, `kubectl apply` it, and start playing.
+
+```sh
+kubectl apply -f https://get.kobblestone.io/v0.1.0/kobblestone.yaml
+```
+
+> [!WARNING]
+> **Alpha and highly experimental.** All resources are in the `v1alpha1` API version. Some features and concepts are not
+> fully implemented yet, and fields and behavior can change between releases, sometimes with manual migration steps.
+> Don't rely on Kobblestone for production worlds yet.
+
+- [A server is just another resource](#a-server-is-just-another-resource)
+- [Everything a Minecraft network needs](#everything-a-minecraft-network-needs)
+- [Made for how clusters actually run](#made-for-how-clusters-actually-run)
 - [Getting Started](#getting-started)
 - [Special Thanks](#special-thanks)
 
-## Features
+## A server is just another resource
 
-- Supports Minecraft servers of many different types and versions (Vanilla, PaperMC, Purpur, Fabric, etc.).
-- Hostname based routing across multiple servers.
-- Combine multiple servers to build a network behind a [Velocity](https://papermc.io/software/velocity/) proxy.
-- Live and offline on-demand server backups with support for multiple storage backends (S3, PVC).
-- Native [Gateway API](https://kubernetes.io/docs/concepts/services-networking/gateway/) integration for exposing
-  servers, networks and routers (also supports LoadBalancer Services).
-- Execute server commands declaratively via Kubernetes resources.
-- Automatic server scale-down/-up based on player inactivity.
-- Bot programming and deployment based on [Mineflayer](https://github.com/PrismarineJS/mineflayer).
-- Manage Microsoft accounts and device-flow authorization for authenticated bots.
+Kobblestone teaches the Kubernetes API about Minecraft. A `Server` says what to run: the server type, game version,
+storage and resources. The operator builds and looks after everything underneath it.
 
-## CRD Overview
+```yaml
+apiVersion: kobblestone.io/v1alpha1
+kind: Server
+metadata:
+  name: my-server
+spec:
+  eula: true
+  type: Paper
+  version: "26.2"
+  storage:
+    size: 1Gi
+  resources:
+    limits:
+      memory: 2Gi
+```
 
-View the full CRD reference docs [here](https://doc.crds.dev/github.com/kobblestoneio/kobblestone).
+## Everything a Minecraft network needs
 
-- `Server`: Manages a Minecraft server instance.
-- `Router`: Defines a router that is able to route Minecraft traffic based on hostnames.
-- `Route`: Defines a routable hostname and target.
-- `Network`: Manages and configures a [Velocity](https://papermc.io/software/velocity/) proxy instance.
-- `BackupRepo`: Defines a storage backend for backups. Supports S3 buckets and PVC.
-- `Backup`: Creates a backup of a server and stores it inside the referenced repo. Supports live backups coordinated via
-  RCON.
-- `Restore`: Restores a backup on a server.
-- `Command`: Execute a command on a server via RCON and capture the response.
-- `CommandGroup`: Creates and executes multiple commands in sequential order.
-- `Account`: Manages the authorization state for a Microsoft account.
-- `BotBehavior`: Defines the behavior/logic of a bot.
-- `Bot`: Manages a Minecraft bot instance.
-- `BotGroup`: Manages multiple instances of the same bot against different target servers.
+Custom resources that snap together like blocks. Start with a single server and add proxies, routing, backups and bots
+when you need them.
+
+|              | Resource       | What it does                                                          |
+|--------------|----------------|-----------------------------------------------------------------------|
+| **Run**      | `Server`       | A Minecraft server. Vanilla, Paper, Purpur, Fabric, Forge and more.   |
+|              | `Network`      | A Velocity proxy that joins several servers into one network.         |
+| **Route**    | `Router`       | Sends players to the right server by hostname, behind one endpoint.   |
+|              | `Route`        | A hostname and the server or network it leads to.                     |
+| **Protect**  | `BackupRepo`   | Where backups are kept: an S3 bucket or a volume claim.               |
+|              | `Backup`       | A snapshot of a server, taken live over RCON or while it is stopped.  |
+|              | `Restore`      | Puts a backup back onto a server.                                     |
+| **Operate**  | `Command`      | Runs an RCON command and keeps the server's response.                 |
+|              | `CommandGroup` | Runs several commands, one after another.                             |
+| **Automate** | `Account`      | A Microsoft account, signed in once via device code.                  |
+|              | `Bot`          | A Minecraft-Console-Client bot connected to a server or network.      |
+
+Every field is documented in the [CRD reference](https://doc.crds.dev/github.com/kobblestoneio/kobblestone) and with
+`kubectl explain`.
+
+## Made for how clusters actually run
+
+- **Gateway API native.** Attach servers, networks and routers to your existing Gateways and Kobblestone manages the
+  `TCPRoute`s. Plain `LoadBalancer` Services work too.
+- **Sleeps when nobody plays.** Empty servers pause ticking, or hibernate completely and start again as soon as a player
+  connects through a `Router`. Your nodes stay free for everything else.
+- **Backups without downtime.** Live backups coordinate with the running server over RCON. Backups and restores of the
+  same server queue up and run one at a time.
+- **Bots you can script.** Bots run [Minecraft-Console-Client](https://github.com/MCCTeam/Minecraft-Console-Client) and
+  are programmed with its own configuration, command scripts and C# scripts, straight from `ConfigMap`s.
+- **Sessions any workload can use.** Signed-in accounts produce a session `Secret` in a documented format, so your own
+  tools can mount it. The refresh token stays in a separate `Secret`.
+- **Every server flavor.** Vanilla, Paper, Purpur, Folia, Fabric, Quilt, Forge and more, on the game version you choose,
+  each with its own storage and resource limits.
 
 ## Getting Started
 
@@ -175,9 +225,9 @@ spec:
 
 ## Special Thanks
 
-- [itzg](https://github.com/itzg) for
-  creating [docker-minecraft-server](https://github.com/itzg/docker-minecraft-server), [mc-router](https://github.com/itzg/mc-router), [docker-mc-backup](https://github.com/itzg/docker-mc-backup)
-  and [docker-mc-proxy](https://github.com/itzg/docker-mc-proxy). These awesome projects provide core functionality for
-  Kobblestone. Check them out!
-- [PrismarineJs](https://github.com/PrismarineJS) for creating [mineflayer](https://github.com/prismarinejs/mineflayer).
-  Kobblestone uses it to implement bots.
+Kobblestone is built on the shoulders of
+[docker-minecraft-server](https://github.com/itzg/docker-minecraft-server), [mc-router](https://github.com/itzg/mc-router),
+[docker-mc-backup](https://github.com/itzg/docker-mc-backup), [docker-mc-proxy](https://github.com/itzg/docker-mc-proxy),
+[Velocity](https://papermc.io/software/velocity/) and
+[Minecraft-Console-Client](https://github.com/MCCTeam/Minecraft-Console-Client). Thank you to
+[itzg](https://github.com/itzg) and every other maintainer. Check them out!

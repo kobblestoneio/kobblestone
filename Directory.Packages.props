@@ -11,7 +11,10 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageVersion>
     <PackageVersion Include="KubeOps.Operator" Version="13.3.3" />
+    <PackageVersion Include="KubernetesClient" Version="19.0.2" />
     <PackageVersion Include="KubernetesCRDModelGen.Models.gateway.networking.k8s.io" Version="1.57.0" />
+    <PackageVersion Include="MessagePack" Version="3.1.11" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
     <PackageVersion Include="Tomlyn" Version="2.10.1" />
   </ItemGroup>
 </Project>

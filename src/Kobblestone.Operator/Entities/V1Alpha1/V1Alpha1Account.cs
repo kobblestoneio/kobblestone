@@ -6,15 +6,17 @@ using KubeOps.Abstractions.Entities.Attributes;
 namespace Kobblestone.Operator.Entities.V1Alpha1;
 
 [Description("""
-             `Account` represents a Microsoft that can be used to authenticate against online Minecraft servers.
+             `Account` represents a Microsoft account that can be used to authenticate against online Minecraft servers.
              They can be referenced by `Bot`s to connect to online servers.
 
              Once an `Account` is created, an authorization flow (OAuth device flow) is initiated.
              The field `status.deviceFlow` will contain all necessary information for users to complete the authorization.
 
-             Once authorization is completed, the `Account` will store access and refresh tokens securely within a managed `Secret`. 
+             Once authorization is completed, the session is stored in the `Secret` named like the `Account`
+             (type `kobblestone.io/minecraft-session`) in a standard, client independent format, so it can be mounted
+             by any workload. The refresh token is kept separately in the internal `<account>-credentials` `Secret`.
 
-             `Account`s automatically refresh their session before it expires for as long as the authorization state is valid. 
+             `Account`s automatically refresh their session before it expires for as long as the authorization state is valid.
              """)]
 [KubernetesEntity(Group = "kobblestone.io", ApiVersion = "v1alpha1", Kind = "Account")]
 public sealed class
@@ -116,7 +118,7 @@ public sealed class
         [Description("""
                      Custom image for the authorization container.
 
-                     Default is `ghcr.io/kobblestoneio/account-auth`.
+                     Default is `ghcr.io/kobblestoneio/account-auth` (Kobblestone.AccountAuth).
                      """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container")]
         public string? Image { get; set; }

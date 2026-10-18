@@ -6,6 +6,7 @@ FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION} AS build
 WORKDIR /src
 
 COPY ["Directory.Build.props", "Directory.Packages.props", "./"]
+COPY ["src/Kobblestone.Sessions/Kobblestone.Sessions.csproj", "src/Kobblestone.Sessions/"]
 COPY ["src/Kobblestone.Operator/Kobblestone.Operator.csproj", "src/Kobblestone.Operator/"]
 
 RUN dotnet restore "src/Kobblestone.Operator/Kobblestone.Operator.csproj"
