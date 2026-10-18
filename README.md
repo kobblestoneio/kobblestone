@@ -18,7 +18,7 @@ Kobblestone is an open-source operator that turns Minecraft servers, proxies, ro
 resources. Describe your world in YAML, `kubectl apply` it, and start playing.
 
 ```sh
-kubectl apply -f https://get.kobblestone.io/v0.1.0/kobblestone.yaml
+kubectl apply -f https://get.kobblestone.io/v0.2.0/kobblestone.yaml
 ```
 
 > [!WARNING]
@@ -41,16 +41,16 @@ storage and resources. The operator builds and looks after everything underneath
 apiVersion: kobblestone.io/v1alpha1
 kind: Server
 metadata:
-  name: my-server
+    name: my-server
 spec:
-  eula: true
-  type: Paper
-  version: "26.2"
-  storage:
-    size: 1Gi
-  resources:
-    limits:
-      memory: 2Gi
+    eula: true
+    type: Paper
+    version: "26.2"
+    storage:
+        size: 1Gi
+    resources:
+        limits:
+            memory: 2Gi
 ```
 
 ## Everything a Minecraft network needs
@@ -58,19 +58,19 @@ spec:
 Custom resources that snap together like blocks. Start with a single server and add proxies, routing, backups and bots
 when you need them.
 
-|              | Resource       | What it does                                                          |
-|--------------|----------------|-----------------------------------------------------------------------|
-| **Run**      | `Server`       | A Minecraft server. Vanilla, Paper, Purpur, Fabric, Forge and more.   |
-|              | `Network`      | A Velocity proxy that joins several servers into one network.         |
-| **Route**    | `Router`       | Sends players to the right server by hostname, behind one endpoint.   |
-|              | `Route`        | A hostname and the server or network it leads to.                     |
-| **Protect**  | `BackupRepo`   | Where backups are kept: an S3 bucket or a volume claim.               |
-|              | `Backup`       | A snapshot of a server, taken live over RCON or while it is stopped.  |
-|              | `Restore`      | Puts a backup back onto a server.                                     |
-| **Operate**  | `Command`      | Runs an RCON command and keeps the server's response.                 |
-|              | `CommandGroup` | Runs several commands, one after another.                             |
-| **Automate** | `Account`      | A Microsoft account, signed in once via device code.                  |
-|              | `Bot`          | A Minecraft-Console-Client bot connected to a server or network.      |
+|              | Resource       | What it does                                                         |
+| ------------ | -------------- | -------------------------------------------------------------------- |
+| **Run**      | `Server`       | A Minecraft server. Vanilla, Paper, Purpur, Fabric, Forge and more.  |
+|              | `Network`      | A Velocity proxy that joins several servers into one network.        |
+| **Route**    | `Router`       | Sends players to the right server by hostname, behind one endpoint.  |
+|              | `Route`        | A hostname and the server or network it leads to.                    |
+| **Protect**  | `BackupRepo`   | Where backups are kept: an S3 bucket or a volume claim.              |
+|              | `Backup`       | A snapshot of a server, taken live over RCON or while it is stopped. |
+|              | `Restore`      | Puts a backup back onto a server.                                    |
+| **Operate**  | `Command`      | Runs an RCON command and keeps the server's response.                |
+|              | `CommandGroup` | Runs several commands, one after another.                            |
+| **Automate** | `Account`      | A Microsoft account, signed in once via device code.                 |
+|              | `Bot`          | A Minecraft-Console-Client bot connected to a server or network.     |
 
 Every field is documented in the [CRD reference](https://doc.crds.dev/github.com/kobblestoneio/kobblestone) and with
 `kubectl explain`.
@@ -97,7 +97,7 @@ Every field is documented in the [CRD reference](https://doc.crds.dev/github.com
 Kobblestone can be installed via a simple `kubectl apply` command:
 
 ```batch
-kubectl apply -f https://get.kobblestone.io/v0.1.0/kobblestone.yaml
+kubectl apply -f https://get.kobblestone.io/v0.2.0/kobblestone.yaml
 ```
 
 ### Deploying a simple Vanilla server
@@ -108,20 +108,20 @@ Define your server in a `server.yaml` file...
 apiVersion: kobblestone.io/v1alpha1
 kind: Server
 metadata:
-  name: my-server
+    name: my-server
 spec:
-  eula: true
-  type: Vanilla
-  version: "26.2"
-  storage:
-    size: 1Gi
-  resources:
-    limits:
-      memory: 2Gi
-  jvm:
-    memory:
-      # You may want to decrease this for lower memory limits
-      heapPercentage: 75
+    eula: true
+    type: Vanilla
+    version: "26.2"
+    storage:
+        size: 1Gi
+    resources:
+        limits:
+            memory: 2Gi
+    jvm:
+        memory:
+            # You may want to decrease this for lower memory limits
+            heapPercentage: 75
 ```
 
 ... and apply.
@@ -151,14 +151,14 @@ password-protected, it is still unencrypted.
 apiVersion: kobblestone.io/v1alpha1
 kind: Server
 metadata:
-  name: my-server
+    name: my-server
 spec:
-  # ...
-  service:
-    type: LoadBalancer
-    annotations: { } # Configure environment specifics of LB here (like MetalLB ip-pool)
-  rcon:
-    disabled: true
+    # ...
+    service:
+        type: LoadBalancer
+        annotations: {} # Configure environment specifics of LB here (like MetalLB ip-pool)
+    rcon:
+        disabled: true
 ```
 
 **Option B: Gateway API**
@@ -172,13 +172,13 @@ You can easily attach servers (and other resources) to your gateways. Kobbleston
 apiVersion: kobblestone.io/v1alpha1
 kind: Server
 metadata:
-  name: my-server
+    name: my-server
 spec:
-  # ...
-  tcpRoute:
-    parentRefs:
-      - name: my-gateway
-        sectionName: minecraft # TCP listener on your gateway
+    # ...
+    tcpRoute:
+        parentRefs:
+            - name: my-gateway
+              sectionName: minecraft # TCP listener on your gateway
 ```
 
 Your server will then be accessible through the gateways TCP listener.
@@ -195,17 +195,17 @@ For that, we need to deploy and expose a `Router` first.
 apiVersion: kobblestone.io/v1alpha1
 kind: Router
 metadata:
-  name: my-router
+    name: my-router
 spec:
-  replicas: 1 # You can scale routers horizontally
-  # You can use a LoadBalancer Service...
-  service:
-    type: LoadBalancer
-  # ... or the Gateway API
-  tcpRoute:
-    parentRefs:
-      - name: my-gateway
-        sectionName: minecraft # TCP listener on your gateway
+    replicas: 1 # You can scale routers horizontally
+    # You can use a LoadBalancer Service...
+    service:
+        type: LoadBalancer
+    # ... or the Gateway API
+    tcpRoute:
+        parentRefs:
+            - name: my-gateway
+              sectionName: minecraft # TCP listener on your gateway
 ```
 
 Secondly, we can configure the default route on the server.
@@ -214,13 +214,13 @@ Secondly, we can configure the default route on the server.
 apiVersion: kobblestone.io/v1alpha1
 kind: Server
 metadata:
-  name: my-server
+    name: my-server
 spec:
-  # ...
-  route:
-    parentRef:
-      name: my-router
-    hostname: server.example.com # Some hostname that resolves to the routers external endpoint
+    # ...
+    route:
+        parentRef:
+            name: my-router
+        hostname: server.example.com # Some hostname that resolves to the routers external endpoint
 ```
 
 ## Special Thanks
