@@ -60,6 +60,17 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
 
     private const string ReadyFile = "/tmp/kobblestone-ready";
 
+    // Names of the volumes the operator adds to the bot Pod. Prefixed, so they cannot clash with `spec.pod.volumes`.
+    private const string ReservedVolumePrefix = "kobblestone-";
+
+    private const string ConfigVolume = ReservedVolumePrefix + "config";
+
+    private const string ScriptsVolume = ReservedVolumePrefix + "scripts";
+
+    private const string DataVolume = ReservedVolumePrefix + "data";
+
+    private const string SessionVolume = ReservedVolumePrefix + "session";
+
     private const string ScriptKeyPrefix = "script.";
 
     private static readonly TomlSerializerOptions TomlOptions = new() { WriteIndented = true };
@@ -163,6 +174,25 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
         if (scripts.GroupBy(s => s.Name).FirstOrDefault(g => g.Count() > 1) is { } duplicate)
         {
             return $"Script `{duplicate.Key}` is defined more than once.";
+        }
+
+        var volumes = bot.Spec.Pod?.Volumes ?? [];
+
+        if (volumes.FirstOrDefault(v => v.Name.StartsWith(ReservedVolumePrefix, StringComparison.Ordinal)) is { } reserved)
+        {
+            return $"Volume `{reserved.Name}` uses the prefix `{ReservedVolumePrefix}`, which is reserved for the volumes of Kobblestone.";
+        }
+
+        if (volumes.GroupBy(v => v.Name).FirstOrDefault(g => g.Count() > 1) is { } duplicateVolume)
+        {
+            return $"Volume `{duplicateVolume.Key}` is defined more than once.";
+        }
+
+        string[] reservedPaths = [ConfigDirectory, ScriptsDirectory, SessionDirectory, "/data"];
+
+        if ((bot.Spec.Pod?.VolumeMounts ?? []).FirstOrDefault(m => reservedPaths.Contains(m.MountPath.TrimEnd('/'))) is { } mount)
+        {
+            return $"Volume mount `{mount.Name}` uses the path `{mount.MountPath}`, which is managed by Kobblestone. Mount below `/data` instead, e.g. `/data/files`.";
         }
 
         return null;
@@ -476,31 +506,31 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
 
         var volumes = new List<V1Volume>
         {
-            new() { Name = "config", Projected = new V1ProjectedVolumeSource { Sources = ConfigSources(bot) } },
+            new() { Name = ConfigVolume, Projected = new V1ProjectedVolumeSource { Sources = ConfigSources(bot) } },
             bot.Spec.Scripts is { Count: > 0 }
-                ? new() { Name = "scripts", Projected = new V1ProjectedVolumeSource { Sources = ScriptSources(bot) } }
-                : new() { Name = "scripts", EmptyDir = new V1EmptyDirVolumeSource() },
-            new() { Name = "data", EmptyDir = new V1EmptyDirVolumeSource() }
+                ? new() { Name = ScriptsVolume, Projected = new V1ProjectedVolumeSource { Sources = ScriptSources(bot) } }
+                : new() { Name = ScriptsVolume, EmptyDir = new V1EmptyDirVolumeSource() },
+            new() { Name = DataVolume, EmptyDir = new V1EmptyDirVolumeSource() }
         };
 
         var volumeMounts = new List<V1VolumeMount>
         {
-            new() { Name = "config", MountPath = ConfigDirectory, ReadOnlyProperty = true },
-            new() { Name = "scripts", MountPath = ScriptsDirectory, ReadOnlyProperty = true },
-            new() { Name = "data", MountPath = "/data" }
+            new() { Name = ConfigVolume, MountPath = ConfigDirectory, ReadOnlyProperty = true },
+            new() { Name = ScriptsVolume, MountPath = ScriptsDirectory, ReadOnlyProperty = true },
+            new() { Name = DataVolume, MountPath = "/data" }
         };
 
         if (bot.Spec.Auth?.AccountRef.Name is { } accountName)
         {
             volumes.Add(new V1Volume
             {
-                Name = "session",
+                Name = SessionVolume,
                 Secret = new V1SecretVolumeSource { SecretName = accountName }
             });
 
             volumeMounts.Add(new V1VolumeMount
             {
-                Name = "session",
+                Name = SessionVolume,
                 MountPath = SessionDirectory,
                 ReadOnlyProperty = true
             });

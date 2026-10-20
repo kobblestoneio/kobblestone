@@ -280,6 +280,8 @@ public sealed class V1Alpha1Bot :
 
         [Description("""
                      Additional volumes of the bot `Pod`, e.g. a `PersistentVolumeClaim` with data files for scripts.
+
+                     Names starting with `kobblestone-` are reserved for the volumes added by Kobblestone.
                      """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#volumes")]
         public IList<V1Volume>? Volumes { get; set; }

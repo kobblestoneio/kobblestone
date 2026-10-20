@@ -1613,8 +1613,10 @@ spec:
                     nullable: true
                     type: array
                   volumes:
-                    description: Additional volumes of the bot `Pod`, e.g. a `PersistentVolumeClaim`
-                      with data files for scripts.
+                    description: |-
+                      Additional volumes of the bot `Pod`, e.g. a `PersistentVolumeClaim` with data files for scripts.
+
+                      Names starting with `kobblestone-` are reserved for the volumes added by Kobblestone.
                     externalDocs:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#volumes
                     items:
