@@ -1,4 +1,16 @@
+- [v0.2.1](#v021)
 - [v0.2.0](#v020)
+
+# v0.2.1
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fix `Bot`s whose `spec.pod.volumes` contain a volume named `config`, `scripts`, `data` or `session` failing to deploy with a duplicate volume error. The volumes Kobblestone adds to the bot `Pod` are now named `kobblestone-config`, `kobblestone-scripts`, `kobblestone-data` and `kobblestone-session`, which rolls out the `Pod`s of existing `Bot`s once.
+- `Bot`s now report invalid `spec.pod` settings in `status.message` and as a warning event instead of failing to reconcile: volume names starting with the reserved prefix `kobblestone-`, duplicate volume names, and volume mounts on paths managed by Kobblestone (`/data` and the configuration, script and session directories). Mount additional volumes below `/data` instead, e.g. at `/data/files`.
+- Fix `Bot`s not being able to write to their additional volumes (e.g. a `PersistentVolumeClaim` mounted below `/data`), because the bot container runs as a non-root user. Bot `Pod`s now set `fsGroup` to the group of that user.
+- Auth `Job`s of `Account`s and bot `Pod`s no longer reference the image pull `Secret` `dockerconfig`, which does not exist in most clusters.
 
 # v0.2.0
 

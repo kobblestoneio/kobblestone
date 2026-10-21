@@ -346,7 +346,6 @@ public sealed class AccountController(IKubernetesClient client) : IEntityControl
                 ServiceAccountName = account.Name(),
                 AutomountServiceAccountToken = true,
                 RestartPolicy = "Never",
-                ImagePullSecrets = [new V1LocalObjectReference { Name = "dockerconfig" }],
                 Containers =
                 [
                     new V1Container

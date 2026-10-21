@@ -60,6 +60,11 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
 
     private const string ReadyFile = "/tmp/kobblestone-ready";
 
+    /// <summary>
+    /// Group of the user `app` the bot image runs as.
+    /// </summary>
+    private const long AppGroupId = 1654;
+
     // Names of the volumes the operator adds to the bot Pod. Prefixed, so they cannot clash with `spec.pod.volumes`.
     private const string ReservedVolumePrefix = "kobblestone-";
 
@@ -556,8 +561,14 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
                 Affinity = bot.Spec.Pod?.Affinity,
                 NodeSelector = bot.Spec.Pod?.NodeSelector,
                 Tolerations = bot.Spec.Pod?.Tolerations,
-                ImagePullSecrets = [new V1LocalObjectReference { Name = "dockerconfig" }],
                 AutomountServiceAccountToken = false,
+                // The bot image runs as the non-root user `app` (UID/GID 1654 in the .NET images). With this group, volumes
+                // from `spec.pod.volumes` (e.g. a PersistentVolumeClaim for script data) are writable for it.
+                SecurityContext = new V1PodSecurityContext
+                {
+                    FsGroup = AppGroupId,
+                    FsGroupChangePolicy = "OnRootMismatch",
+                },
                 Volumes = volumes,
                 Containers =
                 [

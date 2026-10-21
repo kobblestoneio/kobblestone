@@ -5,7 +5,7 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <OperatorName>kobblestone</OperatorName>
     <DockerImage>ghcr.io/kobblestoneio/kobblestone</DockerImage>
-    <DockerImageTag>0.2.0</DockerImageTag>
+    <DockerImageTag>0.2.1</DockerImageTag>
     <KustomizeDir>$(MSBuildProjectDirectory)/../../kustomize</KustomizeDir>
     <KubeOpsConfigOut>$(KustomizeDir)/generated</KubeOpsConfigOut>
     <GenerateOperatorResources>true</GenerateOperatorResources>

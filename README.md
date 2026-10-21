@@ -18,7 +18,8 @@ Kobblestone is an open-source operator that turns Minecraft servers, proxies, ro
 resources. Describe your world in YAML, `kubectl apply` it, and start playing.
 
 ```sh
-kubectl apply -f https://get.kobblestone.io/v0.2.0/kobblestone.yaml
+helm install kobblestone oci://ghcr.io/kobblestoneio/charts/kobblestone \
+  --namespace kobblestone-system --create-namespace
 ```
 
 > [!WARNING]
@@ -94,11 +95,38 @@ Every field is documented in the [CRD reference](https://doc.crds.dev/github.com
 
 ### Installing Kobblestone
 
-Kobblestone can be installed via a simple `kubectl apply` command:
+All you need is a Kubernetes cluster, `kubectl` and [Helm](https://helm.sh/docs/intro/install/). The Helm chart installs
+the operator and its custom resources:
 
-```batch
-kubectl apply -f https://get.kobblestone.io/v0.2.0/kobblestone.yaml
+```sh
+helm repo add kobblestone https://kobblestoneio.github.io/charts
+helm repo update
+helm install kobblestone kobblestone/kobblestone \
+  --namespace kobblestone-system --create-namespace
 ```
+
+The chart is also published as an OCI artifact, so you can install it without adding the repository:
+
+```sh
+helm install kobblestone oci://ghcr.io/kobblestoneio/charts/kobblestone \
+  --namespace kobblestone-system --create-namespace
+```
+
+See the [installation docs](https://kobblestone.io/docs/installation) for the chart's values, upgrades and uninstalling.
+
+<details>
+<summary>Without Helm</summary>
+
+Each release also comes with a plain manifest that contains everything in one file:
+
+```sh
+kubectl apply -f https://get.kobblestone.io/v0.2.1/kobblestone.yaml
+```
+
+It installs the same components into the namespace `kobblestone-system`. To upgrade, apply the manifest of the new
+release; to uninstall, `kubectl delete -f` the manifest you installed.
+
+</details>
 
 ### Deploying a simple Vanilla server
 
