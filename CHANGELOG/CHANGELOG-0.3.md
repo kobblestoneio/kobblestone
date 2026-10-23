@@ -31,3 +31,7 @@
 - Fix `Command`s and `CommandGroup`s not reaching servers in clusters that enforce `NetworkPolicy`s: the server's `NetworkPolicy` only allowed RCON from `Backup`s. It now also allows RCON from the operator's namespace.
 - Fix the server's `NetworkPolicy` blocking Minecraft and RCON traffic when `service.port` or `rcon.port` was changed: it used these `Service` ports instead of the ports in the `Pod`.
 - Fix `Network`s not using player information forwarding: the generated `velocity.toml` did not set `player-info-forwarding-mode`, so the forwarding secret was not used unless it was set in `spec.proxy.config`.
+
+### Documentation
+
+- The API reference of all resources is now part of the website at [kobblestone.io/docs/reference](https://kobblestone.io/docs/reference), generated from the CRDs. It replaces the reference on doc.crds.dev.

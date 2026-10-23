@@ -7,10 +7,10 @@
 **Run Minecraft the Kubernetes way.**
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-7ba843)](LICENSE)
-[![API version](https://img.shields.io/badge/api-v1alpha1-d9894a)](https://doc.crds.dev/github.com/kobblestoneio/kobblestone)
+[![API version](https://img.shields.io/badge/api-v1alpha1-d9894a)](https://kobblestone.io/docs/reference)
 [![Status](https://img.shields.io/badge/status-alpha-d9894a)](#getting-started)
 
-[Website](https://kobblestone.io) · [Docs](https://kobblestone.io/docs) · [CRD reference](https://doc.crds.dev/github.com/kobblestoneio/kobblestone) · [Changelog](CHANGELOG)
+[Website](https://kobblestone.io) · [Docs](https://kobblestone.io/docs) · [API reference](https://kobblestone.io/docs/reference) · [Changelog](CHANGELOG)
 
 </div>
 
@@ -73,7 +73,7 @@ when you need them.
 | **Automate** | `Account`      | A Microsoft account, signed in once via device code.                 |
 |              | `Bot`          | A Minecraft-Console-Client bot connected to a server or network.     |
 
-Every field is documented in the [CRD reference](https://doc.crds.dev/github.com/kobblestoneio/kobblestone) and with
+Every field is documented in the [API reference](https://kobblestone.io/docs/reference) and with
 `kubectl explain`.
 
 ## Made for how clusters actually run
