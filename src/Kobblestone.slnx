@@ -2,6 +2,7 @@
   <Folder Name="/Changelog/">
     <File Path="../CHANGELOG/CHANGELOG-0.1.md" />
     <File Path="../CHANGELOG/CHANGELOG-0.2.md" />
+    <File Path="../CHANGELOG/CHANGELOG-0.3.md" />
     <File Path="../CHANGELOG/README.md" />
   </Folder>
   <Folder Name="/Docs/">

@@ -23,6 +23,16 @@ rules:
   - update
 - apiGroups:
   - ""
+  nonResourceURLs: []
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - create
+  - update
+  - delete
+- apiGroups:
+  - ""
   resources:
   - events
   verbs:
@@ -240,6 +250,13 @@ rules:
   resources:
   - deployments
   verbs:
+  - watch
+- apiGroups:
+  - apps
+  nonResourceURLs: []
+  resources:
+  - deployments
+  verbs:
   - get
   - create
   - update
@@ -391,7 +408,6 @@ rules:
   - backups
   - bots
   - restores
-  - servers
   verbs:
   - get
   - list
@@ -467,6 +483,7 @@ rules:
   - kobblestone.io
   resources:
   - routes
+  - servers
   verbs:
   - get
   - list

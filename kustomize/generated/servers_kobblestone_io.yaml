@@ -282,6 +282,33 @@ spec:
               eula:
                 description: Whether you accept the [Minecraft EULA](https://www.minecraft.net/en-us/eula). The server does not start unless this is `true`.
                 type: boolean
+              forwarding:
+                description: |-
+                  Configures the server to accept players forwarded by a [Velocity](https://papermc.io/software/velocity) proxy ([modern forwarding](https://docs.papermc.io/velocity/player-information-forwarding/)). The server then runs in offline mode and trusts the player information sent by the proxy.
+
+                  Supported server types: `Paper`, `Pufferfish`, `Purpur`, `Folia` (built in), `Fabric` and `Quilt` (installs [FabricProxy-Lite](https://modrinth.com/mod/fabricproxy-lite) and Fabric API from Modrinth). For other types, it is ignored and the server keeps verifying players itself.
+
+                  **Warning**: For Paper-based servers, `config/paper-global.yml` is managed by Kobblestone and replaced on every start. Changes to it on the server's volume are lost.
+
+                  **Note**: Set and managed by the `Network` for its managed servers.
+                nullable: true
+                properties:
+                  secretRef:
+                    description: Reference to a key of a `Secret` containing the forwarding secret of the proxy.
+                    properties:
+                      key:
+                        description: Name of the key.
+                        type: string
+                      name:
+                        description: Name of the `Secret`.
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                required:
+                - secretRef
+                type: object
               jvm:
                 description: Configures the JVM of the server.
                 nullable: true
@@ -1681,7 +1708,7 @@ spec:
                     type: object
                   port:
                     description: |-
-                      Port of RCON on the server and its `Service`.
+                      Port of RCON on the server's `Service`. Inside the `Pod`, RCON always listens on `25575`.
 
                       Default is `25575`.
                     format: int32

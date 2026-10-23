@@ -85,6 +85,19 @@ public sealed class V1Alpha1Server
 
         [Description(
             """
+                Configures the server to accept players forwarded by a [Velocity](https://papermc.io/software/velocity) proxy ([modern forwarding](https://docs.papermc.io/velocity/player-information-forwarding/)). The server then runs in offline mode and trusts the player information sent by the proxy.
+
+                Supported server types: `Paper`, `Pufferfish`, `Purpur`, `Folia` (built in), `Fabric` and `Quilt` (installs [FabricProxy-Lite](https://modrinth.com/mod/fabricproxy-lite) and Fabric API from Modrinth). For other types, it is ignored and the server keeps verifying players itself.
+
+                **Warning**: For Paper-based servers, `config/paper-global.yml` is managed by Kobblestone and replaced on every start. Changes to it on the server's volume are lost.
+
+                **Note**: Set and managed by the `Network` for its managed servers.
+                """
+        )]
+        public V1Alpha1ServerForwarding? Forwarding { get; set; }
+
+        [Description(
+            """
                 Additional entries for `server.properties`.
 
                 See [server.properties](https://minecraft.wiki/w/Server.properties) for available properties.
@@ -259,6 +272,17 @@ public sealed class V1Alpha1Server
                 """
         )]
         public bool? TcpRoute { get; set; }
+    }
+
+    public record V1Alpha1ServerForwarding
+    {
+        [Description(
+            """
+                Reference to a key of a `Secret` containing the forwarding secret of the proxy.
+                """
+        )]
+        [Required]
+        public V1SecretKeyRef SecretRef { get; set; } = null!;
     }
 
     public record V1Alpha1ServerStorage
@@ -529,7 +553,7 @@ public sealed class V1Alpha1Server
 
         [Description(
             """
-                Port of RCON on the server and its `Service`.
+                Port of RCON on the server's `Service`. Inside the `Pod`, RCON always listens on `25575`.
 
                 Default is `25575`.
                 """

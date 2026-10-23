@@ -4,19 +4,47 @@ metadata:
   name: test-network
   namespace: minecraft
 spec:
-  servers:
-    - name: test
-      targetRef:
-        name: test-server
-      hostname: server.example.com
   proxy:
     content:
       iconUrl: https://img.icons8.com/?size=100&id=16456&format=png&color=000000
     config: |
       motd = "Welcome!"
-      player-info-forwarding-mode = "modern"
       [advanced]
       haproxy-protocol = true
+  # Defaults for all managed servers. Each server's `spec` is merged onto it.
+  serverTemplate:
+    eula: true
+    type: Paper
+    version: "26.2"
+    storage:
+      size: 2Gi
+    resources:
+      limits:
+        memory: 2Gi
+  servers:
+    # Creates the Server "test-network-lobby"; players join here first.
+    - name: lobby
+    # Creates the Server "test-network-survival", reachable via /server survival or its own hostname.
+    - name: survival
+      hostname: survival.example.com
+      try: false
+      spec:
+        storage:
+          size: 20Gi
+        resources:
+          limits:
+            memory: 6Gi
+    # An existing Server joins the network and keeps its data.
+    - name: creative
+      serverName: my-creative-server
+    # Only forwarded to, not configured by the network: the target has to trust the proxy itself.
+    - name: legacy
+      unmanaged: true
+      targetRef:
+        kind: Server
+        name: some-other-server
+  # Keep managed servers (and their data) when they are removed from `servers` or the network is deleted.
+  serverDeletionPolicy: Retain
   route:
     parentRef:
       name: test-router

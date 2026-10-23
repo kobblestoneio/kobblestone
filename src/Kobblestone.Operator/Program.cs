@@ -69,6 +69,11 @@ builder
         V1Service,
         NetworkLabelSelector<V1Service>
     >()
+    .AddControllerWithLabelSelector<
+        NetworkDeploymentController,
+        V1Deployment,
+        NetworkLabelSelector<V1Deployment>
+    >()
     .AddControllerWithLabelSelector<BackupJobController, V1Job, BackupLabelSelector<V1Job>>()
     .AddControllerWithLabelSelector<RestoreJobController, V1Job, RestoreLabelSelector<V1Job>>()
     .AddControllerWithLabelSelector<AccountJobController, V1Job, AccountLabelSelector<V1Job>>()
@@ -79,6 +84,7 @@ builder
     >()
     .AddControllerWithLabelSelector<BotPodController, V1Pod, BotLabelSelector<V1Pod>>()
     .AddFinalizer<ServerFinalizer, V1Alpha1Server>("kobblestone.io/deleteServer")
+    .AddFinalizer<NetworkFinalizer, V1Alpha1Network>("kobblestone.io/deleteNetwork")
     .AddFinalizer<RouteFinalizer, V1Alpha1Route>("kobblestone.io/deleteRoute")
     .AddFinalizer<BackupFinalizer, V1Alpha1Backup>("kobblestone.io/deleteBackup");
 

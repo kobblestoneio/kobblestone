@@ -8,7 +8,11 @@ using KubernetesCRDModelGen.Models.gateway.networking.k8s.io;
 namespace Kobblestone.Operator.Entities.V1Alpha1;
 
 [Description("""
-             A `Network` runs a [Velocity](https://papermc.io/software/velocity) proxy that connects players to multiple `Server`s or other `Network`s.
+             A `Network` runs a [Velocity](https://papermc.io/software/velocity) proxy and the `Server`s behind it.
+
+             Managed servers (the default) are `Server` resources created and kept compatible by the `Network`: they are rendered from `serverTemplate` and their entry in `servers`, and always trust the proxy (modern forwarding with the network's secret, offline mode, reachable only through the proxy). An existing `Server` joins the network, keeping its data, by naming it in `servers[].serverName`.
+
+             Unmanaged entries (`unmanaged: true`) only add an existing `Server` or `Network` to the proxy's configuration, without configuring it.
 
              The proxy runs as a `Deployment`. The operator also manages its `Service`, configuration and forwarding `Secret` and, if configured, its `Route` and `TCPRoute`.
              """)]
@@ -16,6 +20,12 @@ namespace Kobblestone.Operator.Entities.V1Alpha1;
 public sealed class
     V1Alpha1Network : CustomKubernetesEntity<V1Alpha1Network.V1Alpha1NetworkSpec, V1Alpha1Network.V1Alpha1NetworkStatus>
 {
+    /// <summary>
+    /// Label on the managed `Server`s of a `Network` (value: the network's name). Also set on the proxy `Pod`s and
+    /// `Service`.
+    /// </summary>
+    public const string NetworkLabel = "kobblestone.io/network";
+
     public record V1Alpha1NetworkSpec
     {
         [Description("""
@@ -31,11 +41,31 @@ public sealed class
         public V1Alpha1NetworkRoute? Route { get; set; }
 
         [Description("""
-                     Servers the proxy forwards players to.
+                     The software, version and EULA shared by all managed servers, and defaults for their other settings. Each managed server's `spec` is merged onto it.
 
-                     Players join the first available server in the given order, unless a forced host applies.
+                     Required if the network has managed servers.
+                     """)]
+        public V1Alpha1NetworkServerTemplate? ServerTemplate { get; set; }
+
+        [Description("""
+                     Servers of the network.
+
+                     The order matters: players join the first available server with `try` enabled, in the order of this list, unless a forced host applies. If several servers share a `hostname`, they are tried in this order as well.
+
+                     **Note**: The proxy only reads its configuration on startup, so it is restarted whenever this list changes in a way that affects it: servers added, removed, renamed or reordered, or a changed `hostname` or `try`. Players connected to the proxy are disconnected. Servers that are created, deleted or restarted do not restart the proxy.
                      """)]
         public IList<V1Alpha1NetworkServer>? Servers { get; set; }
+
+        [Description("""
+                     What happens to a managed `Server` when it is removed from `servers` or the `Network` is deleted.
+
+                     Default is `Retain`.
+
+                     Values:
+                     - `Retain`: The `Server` and its data are kept. It leaves the network and runs as a standalone server again (forwarding is removed, so it verifies players itself).
+                     - `Delete`: The `Server` is deleted, **including its data**.
+                     """)]
+        public NetworkServerDeletionPolicy? ServerDeletionPolicy { get; set; }
 
         [Description("""
                      Configures the `Service` of the proxy.
@@ -53,6 +83,49 @@ public sealed class
 
     public record V1Alpha1NetworkStatus
     {
+        [Description("""
+                     Ready proxy replicas out of the desired ones, e.g. `1/1`.
+                     """)]
+        [AdditionalPrinterColumn(name: "Proxy")]
+        public string? ProxyReady { get; set; }
+
+        [Description("""
+                     Running servers out of all servers of the network, e.g. `2/3`.
+                     """)]
+        [AdditionalPrinterColumn(name: "Servers")]
+        public string? ServersReady { get; set; }
+
+        [Description("""
+                     Desired number of proxy replicas (`spec.proxy.replicas`).
+                     """)]
+        public int? ProxyReplicas { get; set; }
+
+        [Description("""
+                     Number of proxy replicas that are ready to accept players.
+                     """)]
+        public int? ProxyReadyReplicas { get; set; }
+
+        [Description("""
+                     Number of servers of the network.
+                     """)]
+        public int? ServerCount { get; set; }
+
+        [Description("""
+                     Number of running servers of the network.
+                     """)]
+        public int? ReadyServers { get; set; }
+
+        [Description("""
+                     Message explaining the current state of the `Network`, e.g. why a server cannot be managed.
+                     """)]
+        [AdditionalPrinterColumn(name: "Message")]
+        public string? Message { get; set; }
+
+        [Description("""
+                     State of each server of the network.
+                     """)]
+        public IList<V1Alpha1NetworkServerStatus>? Servers { get; set; }
+
         [Description("""
                      IP address of the proxy's `Service`. External addresses are preferred: the IP assigned by a load balancer, then the first of `externalIPs`, then the cluster IP.
                      """)]
@@ -103,7 +176,7 @@ public sealed class
         [Description("""
                      Custom `velocity.toml`.
 
-                     The operator always sets `servers`, `forced-hosts` and `forwarding-secret-file` (and `online-mode` if `offline` is `true`), overriding the values given here.
+                     The operator always sets `servers`, `forced-hosts`, `player-info-forwarding-mode` (`modern`) and `forwarding-secret-file` (and `online-mode` if `offline` is `true`), overriding the values given here.
                      """)]
         public string? Config { get; set; }
 
@@ -120,7 +193,7 @@ public sealed class
         [Description("""
                      Reference to a key of a `Secret` containing the [forwarding secret](https://docs.papermc.io/velocity/player-information-forwarding/) shared with the backend servers.
 
-                     If not set, a random secret is generated.
+                     If not set, a random secret is generated. Managed servers are configured with it automatically; unmanaged servers have to be configured with it manually.
 
                      **Note**: Only read when the network's own `Secret` is created.
                      """)]
@@ -145,20 +218,211 @@ public sealed class
     {
         [Description("""
                      Name of the server in the proxy, e.g. for `/server <name>`.
+
+                     For managed servers, the `Server` resource is named `<network>-<name>` unless `serverName` is set.
                      """)]
-        [Required] public string Name { get; set; } = null!;
+        [Required]
+        [Pattern("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")]
+        [Length(maxLength: 63)]
+        public string Name { get; set; } = null!;
+
+        [Description("""
+                     If set to `true`, the server is not managed by the network: the proxy only forwards players to `targetRef`, and the target has to be configured to trust the proxy manually.
+
+                     `targetRef` is required, `serverName` and `spec` must not be set.
+
+                     Default is `false`.
+                     """)]
+        public bool? Unmanaged { get; set; }
+
+        [Description("""
+                     Name of the managed `Server` resource in the network's namespace.
+
+                     Default is `<network>-<name>`. If a `Server` with this name already exists and does not belong to another network, it joins the network and keeps its data.
+
+                     Only for managed servers.
+                     """)]
+        [Pattern("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")]
+        [Length(maxLength: 63)]
+        public string? ServerName { get; set; }
+
+        [Description("""
+                     Settings of this managed server, merged onto `serverTemplate`: objects are merged field by field, all other values (including lists) replace the template's value.
+
+                     `type`, `version` and `eula` are shared by all servers and only set in `serverTemplate`.
+
+                     Only for managed servers.
+                     """)]
+        public V1Alpha1NetworkServerSpec? Spec { get; set; }
 
         [Description("""
                      Reference to the `Server` or `Network` to forward players to.
 
                      Supported kinds: `Server` (default), `Network`.
+
+                     Only for unmanaged servers.
                      """)]
-        [Required] public V1TypedObjectReference TargetRef { get; set; } = null!;
+        public V1TypedObjectReference? TargetRef { get; set; }
 
         [Description("""
                      Hostname that sends players directly to this server (forced host).
+
+                     If several servers have the same hostname, players join the first available one, in the order of `servers`.
                      """)]
         public string? Hostname { get; set; }
+
+        [Description("""
+                     Whether players are sent to this server when they join the network (Velocity's `try` list, in the order of `servers`). Servers with `try` disabled are only reachable via `/server` or their `hostname`.
+
+                     Default is `true`.
+                     """)]
+        public bool? Try { get; set; }
+    }
+
+    /// <summary>
+    /// Settings of a single managed server (`servers[].spec`), which also serve as defaults in `serverTemplate`. The
+    /// names match `Server`'s spec, which they are rendered into. Settings the network owns (`forwarding`, `offline`,
+    /// `route`, `tcpRoute`, `service`) and those that define the whole network (`type`, `version`, `eula`, only in
+    /// `serverTemplate`) are not available.
+    /// </summary>
+    public record V1Alpha1NetworkServerSpec
+    {
+        [Description("""
+                     Desired state of the server, see `Server` `spec.state`.
+
+                     Default is `Running`.
+                     """)]
+        public ServerState? State { get; set; }
+
+        [Description("""
+                     Additional entries for `server.properties`, see `Server` `spec.properties`.
+                     """)]
+        public IDictionary<string, string?>? Properties { get; set; }
+
+        [Description("""
+                     Lifecycle settings, see `Server` `spec.lifecycle`.
+                     """)]
+        public V1Alpha1Server.V1Alpha1ServerLifecycle? Lifecycle { get; set; }
+
+        [Description("""
+                     Persistent volume for the server's data, see `Server` `spec.storage`.
+
+                     **Warning**: Without storage, the server's world is lost whenever its `Pod` is recreated.
+                     """)]
+        public V1Alpha1Server.V1Alpha1ServerStorage? Storage { get; set; }
+
+        [Description("""
+                     Sleeping while no players are online, see `Server` `spec.autoSleep`.
+
+                     **Note**: `Hibernate` is not supported behind a proxy, because nothing wakes the server up again.
+                     """)]
+        public V1Alpha1Server.V1Alpha1ServerAutoSleep? AutoSleep { get; set; }
+
+        [Description("""
+                     Whitelist and operators, see `Server` `spec.access`.
+                     """)]
+        public V1Alpha1Server.V1Alpha1ServerAccess? Access { get; set; }
+
+        [Description("""
+                     Compute resources of the server container.
+                     """)]
+        public V1ResourceRequirements? Resources { get; set; }
+
+        [Description("""
+                     Configures the server `Pod`, see `Server` `spec.pod`.
+                     """)]
+        public V1Alpha1Server.V1Alpha1ServerPod? Pod { get; set; }
+
+        [Description("""
+                     Remote console of the server, see `Server` `spec.rcon`.
+                     """)]
+        public V1Alpha1Server.V1Alpha1ServerRcon? Rcon { get; set; }
+
+        [Description("""
+                     Commands executed via RCON on certain events, see `Server` `spec.autoCommands`.
+                     """)]
+        public V1Alpha1Server.V1Alpha1ServerAutoCommands? AutoCommands { get; set; }
+
+        [Description("""
+                     Plugins, mods, modpacks and other content, see `Server` `spec.content`.
+                     """)]
+        public V1Alpha1Server.V1Alpha1ServerContent? Content { get; set; }
+
+        [Description("""
+                     JVM settings, see `Server` `spec.jvm`.
+                     """)]
+        public V1Alpha1Server.V1Alpha1ServerJvm? Jvm { get; set; }
+
+        [Description("""
+                     Health checks, see `Server` `spec.timeouts`.
+                     """)]
+        public V1Alpha1Server.V1Alpha1ServerTimeouts? Timeouts { get; set; }
+
+        [Description("""
+                     The server's `NetworkPolicy`, see `Server` `spec.networkPolicy`.
+                     """)]
+        public V1Alpha1Server.V1Alpha1ServerNetworkPolicy? NetworkPolicy { get; set; }
+    }
+
+    /// <summary>
+    /// The servers of the network: the software, version and EULA all of them share, and defaults for their other
+    /// settings.
+    /// </summary>
+    public record V1Alpha1NetworkServerTemplate : V1Alpha1NetworkServerSpec
+    {
+        [Description("""
+                     Type of the server software of all servers, see `Server` `spec.type`.
+
+                     Only types that can trust a Velocity proxy are supported: `Paper`, `Pufferfish`, `Purpur`, `Folia`, `Fabric`, `Quilt`.
+                     """)]
+        [Required]
+        public ServerType Type { get; set; }
+
+        [Description("""
+                     Minecraft version of all servers, see `Server` `spec.version`.
+                     """)]
+        [Required]
+        public string Version { get; set; } = null!;
+
+        [Description("""
+                     Whether you accept the [Minecraft EULA](https://www.minecraft.net/en-us/eula) for all servers of the network. The servers do not start unless this is `true`.
+                     """)]
+        [Required]
+        public bool Eula { get; set; }
+    }
+
+    public record V1Alpha1NetworkServerStatus
+    {
+        [Description("""
+                     Name of the server in the proxy.
+                     """)]
+        public string Name { get; set; } = null!;
+
+        [Description("""
+                     Name of the `Server` resource, or of the target of an unmanaged entry.
+                     """)]
+        public string? Server { get; set; }
+
+        [Description("""
+                     Whether the server is managed by the network.
+                     """)]
+        public bool Managed { get; set; }
+
+        [Description("""
+                     Phase of the `Server` (`status.phase`), or `Missing` if it does not exist.
+                     """)]
+        public string? Phase { get; set; }
+
+        [Description("""
+                     Why the server cannot be managed, if so.
+                     """)]
+        public string? Message { get; set; }
+    }
+
+    public enum NetworkServerDeletionPolicy
+    {
+        Retain,
+        Delete
     }
 
     public record V1Alpha1NetworkService

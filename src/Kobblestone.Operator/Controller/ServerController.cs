@@ -15,6 +15,7 @@ using KubeOps.Abstractions.Rbac;
 using KubeOps.Abstractions.Reconciliation;
 using KubeOps.Abstractions.Reconciliation.Controller;
 using KubeOps.Abstractions.Reconciliation.Finalizer;
+using KubeOps.Abstractions.Reconciliation.Queue;
 using KubeOps.KubernetesClient;
 
 using KubernetesCRDModelGen.Models.gateway.networking.k8s.io;
@@ -22,6 +23,7 @@ using KubernetesCRDModelGen.Models.gateway.networking.k8s.io;
 namespace Kobblestone.Operator.Controller;
 
 [EntityRbac(typeof(V1Alpha1Server), Verbs = RbacVerb.Watch | RbacVerb.Get | RbacVerb.Update)]
+[EntityRbac(typeof(V1Alpha1Network), Verbs = RbacVerb.Get)]
 [EntityRbac(
     typeof(V1Alpha1Route),
     Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete
@@ -35,6 +37,11 @@ namespace Kobblestone.Operator.Controller;
     Groups = [V1Service.KubeGroup],
     Resources = [V1Service.KubePluralName],
     Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update
+)]
+[GenericRbac(
+    Groups = [V1ConfigMap.KubeGroup],
+    Resources = [V1ConfigMap.KubePluralName],
+    Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete
 )]
 [GenericRbac(
     Groups = [V1Secret.KubeGroup],
@@ -59,7 +66,8 @@ namespace Kobblestone.Operator.Controller;
 [GenericRbac(Groups = [V1Job.KubeGroup], Resources = [V1Job.KubePluralName], Verbs = RbacVerb.List)]
 public sealed class ServerController(
     IKubernetesClient client,
-    EntityFinalizerAttacher<ServerFinalizer, V1Alpha1Server> finalizer
+    EntityFinalizerAttacher<ServerFinalizer, V1Alpha1Server> finalizer,
+    EntityQueue<V1Alpha1Network> queueNetwork
 ) : IEntityController<V1Alpha1Server>
 {
     public async Task<ReconciliationResult<V1Alpha1Server>> ReconcileAsync(
@@ -79,6 +87,10 @@ public sealed class ServerController(
 
             return ReconciliationResult<V1Alpha1Server>.Success(entity);
         }
+
+        // The network of a managed server derives the state of its servers from their status, and re-applies their
+        // spec (which reverts manual changes).
+        await QueueNetworkAsync(entity, cancellationToken).ConfigureAwait(false);
 
         // Hibernation and wake-ups are requested via annotations. The decision is recorded in the Hibernating
         // condition, which only this controller writes.
@@ -109,6 +121,8 @@ public sealed class ServerController(
         await EnsurePvcAsync(entity, cancellationToken).ConfigureAwait(false);
 
         await EnsureSecretAsync(entity, cancellationToken).ConfigureAwait(false);
+
+        await EnsureForwardingConfigMapAsync(entity, cancellationToken).ConfigureAwait(false);
 
         await EnsureRouteAsync(entity, cancellationToken).ConfigureAwait(false);
 
@@ -228,12 +242,25 @@ public sealed class ServerController(
             : (true, (V1Condition?)null);
     }
 
-    public Task<ReconciliationResult<V1Alpha1Server>> DeletedAsync(
+    public async Task<ReconciliationResult<V1Alpha1Server>> DeletedAsync(
         V1Alpha1Server entity,
         CancellationToken cancellationToken
     )
     {
-        return Task.FromResult(ReconciliationResult<V1Alpha1Server>.Success(entity));
+        // A deleted managed server is created again by its network.
+        await QueueNetworkAsync(entity, cancellationToken).ConfigureAwait(false);
+
+        return ReconciliationResult<V1Alpha1Server>.Success(entity);
+    }
+
+    private async Task QueueNetworkAsync(V1Alpha1Server server, CancellationToken cancellationToken)
+    {
+        if (server.GetLabel(V1Alpha1Network.NetworkLabel) is { } networkName)
+        {
+            await queueNetwork
+                .RequeueAsync(client, networkName, server.Namespace(), cancellationToken)
+                .ConfigureAwait(false);
+        }
     }
 
     private async Task<V1NetworkPolicy?> EnsureNetworkPolicyAsync(
@@ -320,6 +347,51 @@ public sealed class ServerController(
         }
 
         return route;
+    }
+
+    /// <summary>
+    /// The managed <c>paper-global.yml</c> of Paper-based servers with forwarding (see <see cref="ServerForwarding"/>).
+    /// </summary>
+    private async Task EnsureForwardingConfigMapAsync(
+        V1Alpha1Server server,
+        CancellationToken cancellationToken
+    )
+    {
+        var name = ServerForwarding.ConfigMapName(server);
+
+        var cm = await client
+            .GetAsync<V1ConfigMap>(name, server.Namespace(), cancellationToken)
+            .ConfigureAwait(false);
+
+        if (ServerForwarding.GetEffectiveSupport(server) is not ServerForwarding.Support.Paper)
+        {
+            if (cm is not null && cm.GetOwnerReference(server) is not null)
+            {
+                await client.DeleteAsync(cm, cancellationToken).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
+        var exists = cm is not null;
+
+        cm ??= new V1ConfigMap { Metadata = new V1ObjectMeta() };
+        cm.Metadata.Name = name;
+        cm.Metadata.NamespaceProperty = server.Namespace();
+        cm.Data = new Dictionary<string, string>
+        {
+            [ServerForwarding.PaperGlobalConfigFile] = ServerForwarding.PaperGlobalConfig,
+        };
+        cm.WithOwnerReference(server);
+
+        if (exists)
+        {
+            await client.UpdateAsync(cm, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await client.CreateAsync(cm, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task<V1Secret> EnsureSecretAsync(
@@ -564,6 +636,8 @@ public sealed class ServerController(
             },
         };
         policy.Spec.PolicyTypes = ["Ingress"];
+        // NetworkPolicy ports are the ports of the Pod, not of the Service: Minecraft is always 25565 (the router
+        // sidecar) and RCON always 25575 in the Pod, regardless of `service.port` and `rcon.port`.
         policy.Spec.Ingress =
         [
             // Allow Minecraft from any Router, Network and Bot Pod (TODO: further restrict Network Pods in the future)
@@ -621,7 +695,7 @@ public sealed class ServerController(
                 [
                     new V1NetworkPolicyPort
                     {
-                        Port = server.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort,
+                        Port = MinecraftConstants.DefaultMinecraftPort,
                         Protocol = "TCP",
                     },
                 ],
@@ -651,12 +725,44 @@ public sealed class ServerController(
                 [
                     new V1NetworkPolicyPort
                     {
-                        Port = server.Spec.Rcon?.Port ?? MinecraftConstants.DefaultRconPort,
+                        Port = MinecraftConstants.DefaultRconPort,
                         Protocol = "TCP",
                     },
                 ],
             },
         ];
+
+        // Allow RCON from the operator, which runs `Command`s and `CommandGroup`s. Its namespace is unknown when it runs
+        // outside the cluster (development), but then it cannot reach the server's cluster IP anyway.
+        if (Environment.GetEnvironmentVariable("POD_NAMESPACE") is { Length: > 0 } operatorNamespace)
+        {
+            policy.Spec.Ingress.Add(
+                new V1NetworkPolicyIngressRule
+                {
+                    FromProperty =
+                    [
+                        new V1NetworkPolicyPeer
+                        {
+                            NamespaceSelector = new V1LabelSelector
+                            {
+                                MatchLabels = new Dictionary<string, string>
+                                {
+                                    { "kubernetes.io/metadata.name", operatorNamespace },
+                                },
+                            },
+                        },
+                    ],
+                    Ports =
+                    [
+                        new V1NetworkPolicyPort
+                        {
+                            Port = MinecraftConstants.DefaultRconPort,
+                            Protocol = "TCP",
+                        },
+                    ],
+                }
+            );
+        }
 
         // Allow Minecraft from Gateway Pods
         if (server.Spec.TcpRoute is { ParentRefs: { } tcpRouteParentRefs })
@@ -696,8 +802,7 @@ public sealed class ServerController(
                             new V1NetworkPolicyPort
                             {
                                 Port =
-                                    server.Spec.Service?.Port
-                                    ?? MinecraftConstants.DefaultMinecraftPort,
+                                    MinecraftConstants.DefaultMinecraftPort,
                                 Protocol = "TCP",
                             },
                         ],
@@ -722,13 +827,12 @@ public sealed class ServerController(
                         new V1NetworkPolicyPort
                         {
                             Port =
-                                server.Spec.Service?.Port
-                                ?? MinecraftConstants.DefaultMinecraftPort,
+                                MinecraftConstants.DefaultMinecraftPort,
                             Protocol = "TCP",
                         },
                         new V1NetworkPolicyPort
                         {
-                            Port = server.Spec.Rcon?.Port ?? MinecraftConstants.DefaultRconPort,
+                            Port = MinecraftConstants.DefaultRconPort,
                             Protocol = "TCP",
                         },
                     ],
@@ -819,6 +923,7 @@ public sealed class ServerController(
                                 },
                             ]
                     )
+                    .Concat(ServerForwarding.GetVolumes(server))
                     .Concat(server.Spec.Pod?.Volumes ?? [])
                     .ToList(),
                 InitContainers =
@@ -865,6 +970,14 @@ public sealed class ServerController(
                             server.Spec.Pod?.Image
                             ?? ContainerImages.MinecraftServer(server.Spec.Jvm?.Version),
                         ImagePullPolicy = server.Spec.Pod?.ImagePullPolicy,
+                        Ports =
+                        [
+                            new V1ContainerPort
+                            {
+                                Name = "rcon",
+                                ContainerPort = MinecraftConstants.DefaultRconPort,
+                            },
+                        ],
                         VolumeMounts = new List<V1VolumeMount>
                         {
                             new()
@@ -879,6 +992,7 @@ public sealed class ServerController(
                                     ? []
                                     : [new V1VolumeMount { Name = "data", MountPath = "/data" }]
                             )
+                            .Concat(ServerForwarding.GetVolumeMounts(server))
                             .Concat(server.Spec.Pod?.VolumeMounts ?? [])
                             .ToList(),
                         Env = new List<V1EnvVar>()
@@ -904,6 +1018,7 @@ public sealed class ServerController(
                                     : []
                             )
                             .Concat(GetEnvVars(server))
+                            .Concat(ServerForwarding.GetEnvVars(server))
                             .Concat(server.Spec.Pod?.Env ?? [])
                             .ToList(),
                         StartupProbe = new V1Probe
@@ -998,7 +1113,8 @@ public sealed class ServerController(
             envVars["EULA"] = "false";
         }
 
-        if (server.Spec.Offline is true)
+        // Behind a Velocity proxy, the proxy verifies players and forwards them to the server.
+        if (server.Spec.Offline is true || ServerForwarding.IsEnabled(server))
         {
             envVars["ONLINE_MODE"] = "false";
         }
@@ -1042,7 +1158,13 @@ public sealed class ServerController(
         envVars["MODPACK"] = server.Spec.Content?.ModPackUrl;
         envVars["MODRINTH_PROJECTS"] = string.Join(
             ",",
-            server.Spec.Content?.Modrinth?.Projects ?? []
+            (server.Spec.Content?.Modrinth?.Projects ?? [])
+                .Concat(
+                    ServerForwarding.GetEffectiveSupport(server) is ServerForwarding.Support.Fabric
+                        ? ServerForwarding.FabricModrinthProjects
+                        : []
+                )
+                .Distinct()
         );
         envVars["CURSEFORGE_FILES"] = string.Join(
             ",",

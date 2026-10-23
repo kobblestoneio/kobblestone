@@ -62,7 +62,7 @@ when you need them.
 |              | Resource       | What it does                                                         |
 | ------------ | -------------- | -------------------------------------------------------------------- |
 | **Run**      | `Server`       | A Minecraft server. Vanilla, Paper, Purpur, Fabric, Forge and more.  |
-|              | `Network`      | A Velocity proxy that joins several servers into one network.        |
+|              | `Network`      | A Velocity proxy and the servers behind it, kept compatible with it. |
 | **Route**    | `Router`       | Sends players to the right server by hostname, behind one endpoint.  |
 |              | `Route`        | A hostname and the server or network it leads to.                    |
 | **Protect**  | `BackupRepo`   | Where backups are kept: an S3 bucket or a volume claim.              |
@@ -120,7 +120,7 @@ See the [installation docs](https://kobblestone.io/docs/installation) for the ch
 Each release also comes with a plain manifest that contains everything in one file:
 
 ```sh
-kubectl apply -f https://get.kobblestone.io/v0.2.1/kobblestone.yaml
+kubectl apply -f https://get.kobblestone.io/v0.3.0/kobblestone.yaml
 ```
 
 It installs the same components into the namespace `kobblestone-system`. To upgrade, apply the manifest of the new
