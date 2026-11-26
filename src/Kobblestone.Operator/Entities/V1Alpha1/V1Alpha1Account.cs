@@ -130,6 +130,14 @@ public sealed class
         public string? ImagePullPolicy { get; set; }
 
         [Description("""
+                     Compute resources of the authorization container.
+
+                     Default is a request of `10m` CPU and `64Mi` memory, and a limit of `256Mi` memory.
+                     """)]
+        [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources")]
+        public V1ResourceRequirements? Resources { get; set; }
+
+        [Description("""
                      Affinity of the authorization `Pod`.
                      """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Affinity")]

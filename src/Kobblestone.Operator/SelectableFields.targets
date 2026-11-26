@@ -1,0 +1,83 @@
+<Project>
+
+  <!--
+    Adds `selectableFields` to the generated CRDs, so the API server can filter custom resources by these spec fields
+    (field selectors, Kubernetes 1.32+). KubeOps does not generate them.
+
+    The operator uses them to list the resources that reference an object (see Utils/SelectableFields.cs): every field
+    used there must be declared here. A selectable field must be a string, integer or boolean field outside of lists.
+  -->
+  <ItemGroup>
+    <CrdSelectableField Include="backups_kobblestone_io.yaml" JsonPath=".spec.targetRef.name"/>
+    <CrdSelectableField Include="restores_kobblestone_io.yaml" JsonPath=".spec.targetRef.name"/>
+    <CrdSelectableField Include="routes_kobblestone_io.yaml" JsonPath=".spec.parentRef.name"/>
+    <CrdSelectableField Include="bots_kobblestone_io.yaml" JsonPath=".spec.auth.accountRef.name"/>
+    <CrdSelectableField Include="backuprepos_kobblestone_io.yaml" JsonPath=".spec.persistentVolumeClaim.name"/>
+  </ItemGroup>
+
+  <!-- Runs after KubeOps generated the CRDs (and also when it skipped generating them; the result is the same). -->
+  <Target Name="AddCrdSelectableFields" AfterTargets="GenerateOperatorResources"
+          Condition="'$(GenerateOperatorResources)' == 'true'">
+    <AddCrdSelectableFields CrdDirectory="$(KubeOpsConfigOut)" Fields="@(CrdSelectableField)"/>
+  </Target>
+
+  <UsingTask TaskName="AddCrdSelectableFields" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <CrdDirectory ParameterType="System.String" Required="true"/>
+      <Fields ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true"/>
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System.IO"/>
+      <Using Namespace="System.Linq"/>
+      <Using Namespace="System.Text"/>
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        // The generated CRDs have a single version, whose keys are sorted: `selectableFields` goes before `served`.
+        const string Indent = "    ";
+        foreach (var crd in Fields.GroupBy(f => f.ItemSpec))
+        {
+            var path = Path.Combine(CrdDirectory, crd.Key);
+            if (!File.Exists(path))
+            {
+                Log.LogError("CRD {0} not found for its selectableFields.", path);
+                continue;
+            }
+
+            var text = File.ReadAllText(path);
+            var newline = text.Contains("\r\n") ? "\r\n" : "\n";
+            var lines = text.Replace("\r\n", "\n").Split('\n').ToList();
+
+            // Remove the block of a previous run, if the CRD was not regenerated.
+            var existing = lines.IndexOf(Indent + "selectableFields:");
+            if (existing >= 0)
+            {
+                lines.RemoveAt(existing);
+                while (existing < lines.Count && lines[existing].StartsWith(Indent + "- jsonPath: "))
+                {
+                    lines.RemoveAt(existing);
+                }
+            }
+
+            var served = lines.FindAll(l => l == Indent + "served: true").Count == 1
+                ? lines.IndexOf(Indent + "served: true")
+                : -1;
+            if (served < 0)
+            {
+                Log.LogError("CRD {0} does not have exactly one version, cannot add its selectableFields.", path);
+                continue;
+            }
+
+            lines.InsertRange(served, new[] { Indent + "selectableFields:" }
+                .Concat(crd.Select(f => Indent + "- jsonPath: " + f.GetMetadata("JsonPath"))));
+
+            var result = string.Join(newline, lines);
+            if (result != text)
+            {
+                File.WriteAllText(path, result, new UTF8Encoding(false));
+            }
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+</Project>

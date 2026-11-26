@@ -18,6 +18,7 @@ builder.Services.AddHttpClient();
 
 builder.Services.TryAddSingleton<IRouterApi, RouterApi>();
 builder.Services.TryAddSingleton<IRconConnectionFactory, RconConnectionFactory>();
+builder.Services.TryAddSingleton<FileBrowserIndex>();
 
 builder
     .Services.AddKubernetesOperator(settings =>
@@ -48,6 +49,7 @@ builder
     .AddController<NetworkController, V1Alpha1Network>()
     .AddController<BotController, V1Alpha1Bot>()
     .AddController<AccountController, V1Alpha1Account>()
+    .AddController<FileBrowserController, V1Alpha1FileBrowser>()
     .AddControllerWithLabelSelector<
         ServerStatefulSetController,
         V1StatefulSet,
@@ -74,6 +76,11 @@ builder
         V1Deployment,
         NetworkLabelSelector<V1Deployment>
     >()
+    .AddControllerWithLabelSelector<
+        FileBrowserDeploymentController,
+        V1Deployment,
+        FileBrowserLabelSelector<V1Deployment>
+    >()
     .AddControllerWithLabelSelector<BackupJobController, V1Job, BackupLabelSelector<V1Job>>()
     .AddControllerWithLabelSelector<RestoreJobController, V1Job, RestoreLabelSelector<V1Job>>()
     .AddControllerWithLabelSelector<AccountJobController, V1Job, AccountLabelSelector<V1Job>>()
@@ -83,6 +90,11 @@ builder
         AccountLabelSelector<V1Secret>
     >()
     .AddControllerWithLabelSelector<BotPodController, V1Pod, BotLabelSelector<V1Pod>>()
+    // The Pods Kobblestone creates that mount server or repo volumes (see VolumeUsers), one watch per label: servers,
+    // backup, restore and cleanup Jobs (all labelled with their repo), file managers.
+    .AddControllerWithLabelSelector<KobblestonePodController, V1Pod, ServerLabelSelector<V1Pod>>()
+    .AddControllerWithLabelSelector<KobblestonePodController, V1Pod, BackupRepoLabelSelector<V1Pod>>()
+    .AddControllerWithLabelSelector<KobblestonePodController, V1Pod, FileBrowserLabelSelector<V1Pod>>()
     .AddFinalizer<ServerFinalizer, V1Alpha1Server>("kobblestone.io/deleteServer")
     .AddFinalizer<NetworkFinalizer, V1Alpha1Network>("kobblestone.io/deleteNetwork")
     .AddFinalizer<RouteFinalizer, V1Alpha1Route>("kobblestone.io/deleteRoute")

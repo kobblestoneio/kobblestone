@@ -99,7 +99,7 @@ public sealed class NetworkController(
 
         // The NetworkServiceController queues this network whenever the Service changes, e.g. when its load balancer
         // got an external IP.
-        entity.Status.Address = service.GetIpAddress();
+        entity.Status.Address = service.GetAddress();
         entity.Status.Servers = members.Select(m => m.Status).ToList();
         // The NetworkDeploymentController queues this network whenever the proxy's readiness changes.
         entity.Status.ProxyReplicas = deploy.Spec.Replicas ?? 1;
@@ -436,7 +436,7 @@ public sealed class NetworkController(
         ServiceAddress(serverName, network.Namespace(), null);
 
     private static string ServiceAddress(string name, string ns, int? port) =>
-        $"{name}.{ns}.svc.cluster.local:{port ?? MinecraftConstants.DefaultMinecraftPort}";
+        $"{ServiceExtensions.ServiceDnsName(name, ns)}:{port ?? MinecraftConstants.DefaultMinecraftPort}";
 
     /// <summary>
     /// Velocity reads its configuration only on startup: the hash in the pod template restarts the proxy when the

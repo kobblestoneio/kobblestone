@@ -14,6 +14,7 @@ resources:
 - bots_kobblestone_io.yaml
 - commands_kobblestone_io.yaml
 - commandgroups_kobblestone_io.yaml
+- filebrowsers_kobblestone_io.yaml
 - networks_kobblestone_io.yaml
 - restores_kobblestone_io.yaml
 - routes_kobblestone_io.yaml
@@ -23,6 +24,6 @@ resources:
 images:
 - name: operator
   newName: ghcr.io/kobblestoneio/kobblestone
-  newTag: 0.3.0
+  newTag: 0.4.0-rc1
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization

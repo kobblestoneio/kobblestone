@@ -13,14 +13,18 @@ namespace Kobblestone.Operator.Controller;
 
 /// <summary>
 /// Watches the StatefulSets of `Server`s. It does not write any status itself: it only queues the owning `Server`,
-/// whose controller derives its status (Running, Stopped, ...) from the StatefulSet.
+/// whose controller derives its status (Running, Stopped, ...) from the StatefulSet, and the `FileBrowser`s of the
+/// server, whose file manager has to follow the server to its node.
 /// </summary>
 [GenericRbac(Groups = [V1StatefulSet.KubeGroup], Resources = [V1StatefulSet.KubePluralName],
     Verbs = RbacVerb.Watch)]
 [EntityRbac(typeof(V1Alpha1Server), Verbs = RbacVerb.Get)]
+[EntityRbac(typeof(V1Alpha1FileBrowser), Verbs = RbacVerb.Get)]
 public sealed class ServerStatefulSetController(
     IKubernetesClient client,
-    EntityQueue<V1Alpha1Server> queueServer) : IEntityController<V1StatefulSet>
+    EntityQueue<V1Alpha1Server> queueServer,
+    EntityQueue<V1Alpha1FileBrowser> queueFileBrowser,
+    FileBrowserIndex fileBrowserIndex) : IEntityController<V1StatefulSet>
 {
     public async Task<ReconciliationResult<V1StatefulSet>> ReconcileAsync(V1StatefulSet entity,
         CancellationToken cancellationToken)
@@ -51,5 +55,13 @@ public sealed class ServerStatefulSetController(
 
         await queueServer.RequeueAsync(client, serverRef.Name, statefulSet.Namespace(), cancellationToken)
             .ConfigureAwait(false);
+
+        // The targets are a list, which the API server cannot filter by, so the FileBrowsers of the server come from
+        // the in-memory index (see FileBrowserIndex) instead of listing all FileBrowsers of the namespace.
+        foreach (var fileBrowser in fileBrowserIndex.FileBrowsersOf(statefulSet.Namespace(), serverRef.Name))
+        {
+            await queueFileBrowser.RequeueAsync(client, fileBrowser, statefulSet.Namespace(), cancellationToken)
+                .ConfigureAwait(false);
+        }
     }
 }

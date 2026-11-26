@@ -131,10 +131,12 @@ public static class ServerOperations
         // seen either as queued (status) or as active (job) — it can never slip through both snapshots.
         var backupsTask = client.ListAsync<V1Alpha1Backup>(
             @namespace,
+            fieldSelector: SelectableFields.EqualTo(SelectableFields.TargetName, serverName),
             cancellationToken: cancellationToken
         );
         var restoresTask = client.ListAsync<V1Alpha1Restore>(
             @namespace,
+            fieldSelector: SelectableFields.EqualTo(SelectableFields.TargetName, serverName),
             cancellationToken: cancellationToken
         );
 

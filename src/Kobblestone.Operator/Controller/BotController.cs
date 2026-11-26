@@ -286,7 +286,7 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
 
                     if (server is not null)
                     {
-                        address = $"{server.Name()}.{server.Namespace()}.svc.cluster.local";
+                        address = ServiceExtensions.ServiceDnsName(server.Name(), server.Namespace());
                         port = server.Spec.Service?.Port;
                     }
 
@@ -297,7 +297,7 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
 
                     if (network is not null)
                     {
-                        address = $"{network.Name()}.{network.Namespace()}.svc.cluster.local";
+                        address = ServiceExtensions.ServiceDnsName(network.Name(), network.Namespace());
                         port = network.Spec.Service?.Port;
                     }
 

@@ -127,7 +127,7 @@ public sealed class
         public IList<V1Alpha1NetworkServerStatus>? Servers { get; set; }
 
         [Description("""
-                     IP address of the proxy's `Service`. External addresses are preferred: the IP assigned by a load balancer, then the first of `externalIPs`, then the cluster IP.
+                     Address of the proxy's `Service`. External addresses are preferred: the IP or hostname assigned by a load balancer, then the first of `externalIPs`, then the DNS name of the `Service` in the cluster (`<name>.<namespace>.svc.cluster.local`).
                      """)]
         [AdditionalPrinterColumn(name: "Address")]
         public string? Address { get; set; }
@@ -165,6 +165,8 @@ public sealed class
 
         [Description("""
                      Compute resources of the proxy container.
+
+                     Default is no requests or limits.
                      """)]
         public V1ResourceRequirements? Resources { get; set; }
 

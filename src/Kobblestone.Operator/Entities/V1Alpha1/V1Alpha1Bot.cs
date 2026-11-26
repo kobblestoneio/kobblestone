@@ -80,6 +80,8 @@ public sealed class V1Alpha1Bot :
         [Title("Resources")]
         [Description("""
                      Resource requirements of the `Bot` container.
+
+                     Default is no requests or limits.
                      """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources")]
         public V1ResourceRequirements? Resources { get; set; }

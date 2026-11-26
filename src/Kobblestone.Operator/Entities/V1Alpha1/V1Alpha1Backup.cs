@@ -103,9 +103,11 @@ public sealed class
     public record V1Alpha1BackupJob
     {
         [Description("""
-                     Compute resources of the backup `Pod`.
+                     Compute resources of each container of the backup `Job` (the backup, and the upload to S3 repos), and of the `Job` that deletes the archive (`retainPolicy`). The containers run one after another, so the `Pod` needs no more than this.
+
+                     Default is a request of `10m` CPU and `64Mi` memory, and a limit of `256Mi` memory.
                      """)]
-        [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
+        [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources")]
         public V1ResourceRequirements? Resources { get; set; }
 
         [Description("""

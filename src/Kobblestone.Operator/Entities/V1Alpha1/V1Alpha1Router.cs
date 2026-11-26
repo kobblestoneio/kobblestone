@@ -50,6 +50,8 @@ public sealed class
         [Title("Resources")]
         [Description("""
                      Resource requirements for the `Router` pods.
+
+                     Default is no requests or limits.
                      """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
         public V1ResourceRequirements? Resources { get; set; }
@@ -84,7 +86,7 @@ public sealed class
     public record V1Alpha1RouterStatus
     {
         [Description("""
-                     IP address of the `Router`'s `Service`. External addresses are preferred: the IP assigned by a load balancer, then the first of `externalIPs`, then the cluster IP.
+                     Address of the `Router`'s `Service`. External addresses are preferred: the IP or hostname assigned by a load balancer, then the first of `externalIPs`, then the DNS name of the `Service` in the cluster (`<name>.<namespace>.svc.cluster.local`).
                      """)]
         [AdditionalPrinterColumn(name: "Address")]
         public string? Address { get; set; }
@@ -150,7 +152,7 @@ public sealed class
         public string Hostname { get; set; } = null!;
 
         [Description("""
-                     Address (IP+port) of the target backend.
+                     Address (`host:port`) of the target backend.
                      """)]
         [Example("server.example.svc.cluster.local:25565")]
         [Required]

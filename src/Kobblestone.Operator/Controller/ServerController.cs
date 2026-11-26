@@ -188,7 +188,7 @@ public sealed class ServerController(
         refreshed.Status.Phase = phase;
         // The ServerServiceController queues this server whenever the Service changes, e.g. when its load balancer
         // got an external IP.
-        refreshed.Status.Address = service.GetIpAddress();
+        refreshed.Status.Address = service.GetAddress();
         refreshed.Status.TcpRoute = (tcpRoute is not null ? true : null);
         refreshed.Status.Type = entity.Spec.Type ?? ServerType.Vanilla;
 
@@ -895,7 +895,6 @@ public sealed class ServerController(
                 NodeName = server.Spec.Pod?.NodeName,
                 NodeSelector = server.Spec.Pod?.NodeSelector,
                 Tolerations = server.Spec.Pod?.Tolerations,
-                Resources = server.Spec.Resources,
                 Volumes = new List<V1Volume>
                 {
                     new()
@@ -933,6 +932,7 @@ public sealed class ServerController(
                         Name = "proxy",
                         Image = ContainerImages.Router,
                         RestartPolicy = "Always",
+                        Resources = server.Spec.Pod?.ProxyResources ?? ContainerResources.Sidecar,
                         Ports =
                         [
                             new V1ContainerPort
@@ -970,6 +970,9 @@ public sealed class ServerController(
                             server.Spec.Pod?.Image
                             ?? ContainerImages.MinecraftServer(server.Spec.Jvm?.Version),
                         ImagePullPolicy = server.Spec.Pod?.ImagePullPolicy,
+                        // On the container, not the Pod: pod-level resources need Kubernetes 1.34, and the JVM sizes
+                        // its heap from the container's memory limit (`jvm.memory.heapPercentage`).
+                        Resources = server.Spec.Resources,
                         Ports =
                         [
                             new V1ContainerPort

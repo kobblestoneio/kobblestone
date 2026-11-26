@@ -278,27 +278,38 @@ public sealed class BackupController(
         labels[ServerOperations.BackupModeLabel] =
             online ? ServerOperations.BackupModeOnline : ServerOperations.BackupModeOffline;
 
-        // Pods do not inherit the labels of their Job. This label is required by the Server's NetworkPolicy to
-        // allow RCON access from the backup Pod.
+        // Pods do not inherit the labels of their Job. The backup label is required by the Server's NetworkPolicy to
+        // allow RCON access from the backup Pod; the others let FileBrowsers find the Pods using the server's and the
+        // repo's volumes (see VolumeUsers).
         job.Spec.Template.Metadata = new V1ObjectMeta
         {
-            Labels = new Dictionary<string, string> { { ServerOperations.BackupLabel, backup.Name() } }
+            Labels = new Dictionary<string, string>
+            {
+                { ServerOperations.BackupLabel, backup.Name() },
+                { VolumeUsers.TargetServerLabel, server.Name() },
+                { VolumeUsers.BackupRepoLabel, repo.Name() }
+            }
         };
 
         job.Spec.BackoffLimit = 0;
         job.Spec.ActiveDeadlineSeconds = backup.Spec.Job?.ActiveDeadlineSeconds;
 
+        // Set on every container rather than the Pod: pod-level resources need Kubernetes 1.34. The containers run one
+        // after another (backup, then upload), so the Pod does not need more than one of them.
+        var resources = backup.Spec.Job?.Resources ?? ContainerResources.Helper;
+
         var mcBackupContainer = new V1Container
         {
             Name = "backup",
             Image = backup.Spec.Job?.Image ?? ContainerImages.Backup,
+            Resources = resources,
             Env = new List<V1EnvVar>
             {
                 new() { Name = "INITIAL_DELAY", Value = "0" },
                 new() { Name = "DEST_DIR", Value = $"/mnt/backups/{backup.Uid()}" },
                 new() { Name = "PRUNE_BACKUPS_DAYS", Value = "-1" },
                 new() { Name = "BACKUP_INTERVAL", Value = "0" },
-                new() { Name = "RCON_HOST", Value = $"{server.Name()}.{server.Namespace()}.svc.cluster.local" },
+                new() { Name = "RCON_HOST", Value = ServiceExtensions.ServiceDnsName(server.Name(), server.Namespace()) },
                 new()
                 {
                     Name = "RCON_PORT",
@@ -321,6 +332,7 @@ public sealed class BackupController(
         {
             Name = "backup",
             Image = ContainerImages.Ubuntu,
+            Resources = resources,
             Command =
             [
                 "/bin/sh", "-c", $"tar czf /mnt/backups/{backup.Uid()}/world.tar.gz -C /mnt/data ."
@@ -339,6 +351,7 @@ public sealed class BackupController(
         {
             Name = "upload",
             Image = ContainerImages.AwsCli,
+            Resources = resources,
             Command =
             [
                 "/bin/sh",
@@ -405,7 +418,6 @@ public sealed class BackupController(
         job.Spec.Template.Spec = new V1PodSpec
         {
             RestartPolicy = "Never",
-            Resources = backup.Spec.Job?.Resources,
             Tolerations = backup.Spec.Job?.Tolerations,
             Volumes =
             [

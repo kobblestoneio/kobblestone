@@ -148,7 +148,9 @@ public sealed class V1Alpha1Server
 
         [Description(
             """
-                Compute resources of the server container.
+                Compute resources of the server container. The memory limit also sizes the JVM heap, see `spec.jvm.memory`. The proxy sidecar in the server `Pod` is configured with `spec.pod.proxyResources`.
+
+                Default is no requests or limits.
                 """
         )]
         public V1ResourceRequirements? Resources { get; set; }
@@ -251,7 +253,7 @@ public sealed class V1Alpha1Server
 
         [Description(
             """
-                IP address of the `Server`'s `Service`. External addresses are preferred: the IP assigned by a load balancer, then the first of `externalIPs`, then the cluster IP.
+                Address of the `Server`'s `Service`. External addresses are preferred: the IP or hostname assigned by a load balancer, then the first of `externalIPs`, then the DNS name of the `Service` in the cluster (`<name>.<namespace>.svc.cluster.local`).
                 """
         )]
         [AdditionalPrinterColumn(name: "Address")]
@@ -485,6 +487,16 @@ public sealed class V1Alpha1Server
                 """
         )]
         public string? ImagePullPolicy { get; set; }
+
+        [Description(
+            """
+                Compute resources of the proxy sidecar ([mc-router](https://github.com/itzg/mc-router)) that runs next to the server container: players connect through it, and it reports activity for `autoSleep`. The server container is configured with `spec.resources`.
+
+                Default is a request of `10m` CPU and `32Mi` memory, and a limit of `128Mi` memory.
+                """
+        )]
+        [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources")]
+        public V1ResourceRequirements? ProxyResources { get; set; }
 
         [Description(
             """

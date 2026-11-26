@@ -70,6 +70,7 @@ when you need them.
 |              | `Restore`      | Puts a backup back onto a server.                                    |
 | **Operate**  | `Command`      | Runs an RCON command and keeps the server's response.                |
 |              | `CommandGroup` | Runs several commands, one after another.                            |
+|              | `FileBrowser`  | File access to servers and backups: web, SFTP, WebDAV and REST API.  |
 | **Automate** | `Account`      | A Microsoft account, signed in once via device code.                 |
 |              | `Bot`          | A Minecraft-Console-Client bot connected to a server or network.     |
 
@@ -120,11 +121,21 @@ See the [installation docs](https://kobblestone.io/docs/installation) for the ch
 Each release also comes with a plain manifest that contains everything in one file:
 
 ```sh
-kubectl apply -f https://get.kobblestone.io/v0.3.0/kobblestone.yaml
+kubectl apply -f https://get.kobblestone.io/v0.4.0/kobblestone.yaml
 ```
 
 It installs the same components into the namespace `kobblestone-system`. To upgrade, apply the manifest of the new
 release; to uninstall, `kubectl delete -f` the manifest you installed.
+
+Since 0.4.0, the CRDs and the operator are also available as separate manifests, e.g. to manage the CRDs on their own
+(deleting a CRD deletes all resources of its kind):
+
+```sh
+kubectl apply --server-side -f https://get.kobblestone.io/v0.4.0/kobblestone-crds.yaml
+kubectl apply -f https://get.kobblestone.io/v0.4.0/kobblestone-operator.yaml
+```
+
+Together they contain exactly what `kobblestone.yaml` contains.
 
 </details>
 

@@ -5,12 +5,14 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <OperatorName>kobblestone</OperatorName>
     <DockerImage>ghcr.io/kobblestoneio/kobblestone</DockerImage>
-    <DockerImageTag>0.3.0</DockerImageTag>
+    <DockerImageTag>0.4.0-rc1</DockerImageTag>
     <KustomizeDir>$(MSBuildProjectDirectory)/../../kustomize</KustomizeDir>
     <KubeOpsConfigOut>$(KustomizeDir)/generated</KubeOpsConfigOut>
     <GenerateOperatorResources>true</GenerateOperatorResources>
     <ManifestOutDir>$(MSBuildProjectDirectory)/../../</ManifestOutDir>
     <ManifestOutFile>$(ManifestOutDir)/kobblestone.yaml</ManifestOutFile>
+    <CrdManifestOutFile>$(ManifestOutDir)/kobblestone-crds.yaml</CrdManifestOutFile>
+    <OperatorManifestOutFile>$(ManifestOutDir)/kobblestone-operator.yaml</OperatorManifestOutFile>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
   </PropertyGroup>
 
@@ -21,6 +23,8 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="KubeOps.Operator"/>
+    <!-- Direct reference to use a newer KubernetesClient than the one KubeOps depends on. -->
+    <PackageReference Include="KubernetesClient"/>
     <PackageReference Include="KubernetesCRDModelGen.Models.gateway.networking.k8s.io"/>
     <PackageReference Include="Tomlyn"/>
   </ItemGroup>
@@ -29,11 +33,29 @@
     <ProjectReference Include="..\Kobblestone.Sessions\Kobblestone.Sessions.csproj"/>
   </ItemGroup>
 
-  <!-- Flatten the generated kustomize directory into a single, applyable manifest -->
+  <!--
+    Flatten the kustomize directories into applyable manifests:
+    - kobblestone.yaml: everything (kustomize/)
+    - kobblestone-crds.yaml: only the CRDs (kustomize/crds/)
+    - kobblestone-operator.yaml: only the operator, without CRDs (kustomize/operator/)
+  -->
   <Target Name="PackageManifest" AfterTargets="Build" Condition="'$(GenerateOperatorResources)' == 'true'">
     <MakeDir Directories="$(ManifestOutDir)" Condition="!Exists('$(ManifestOutDir)')"/>
     <Exec Command="kubectl kustomize &quot;$(KustomizeDir)&quot; &gt; &quot;$(ManifestOutFile)&quot;"/>
-    <Message Importance="high" Text="Packaged operator manifest: $(ManifestOutFile)"/>
+    <Exec Command="kubectl kustomize &quot;$(KustomizeDir)/crds&quot; &gt; &quot;$(CrdManifestOutFile)&quot;"/>
+    <Exec Command="kubectl kustomize &quot;$(KustomizeDir)/operator&quot; &gt; &quot;$(OperatorManifestOutFile)&quot;"/>
+
+    <!-- The CRD manifest removes the operator's resources by kind; fail if a new kind slipped through. -->
+    <!-- Top-level kinds start at column 0; the `kind` of each CRD's `names` is indented. -->
+    <PropertyGroup>
+      <_CrdManifestUnexpectedKind>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(CrdManifestOutFile)')), '(?m)^kind: (?!CustomResourceDefinition\s*$)\S+').Value)</_CrdManifestUnexpectedKind>
+    </PropertyGroup>
+    <Error Condition="'$(_CrdManifestUnexpectedKind)' != ''"
+           Text="$(CrdManifestOutFile) must only contain CRDs, but contains '$(_CrdManifestUnexpectedKind)'. Add the kind to the delete patch in kustomize/crds/kustomization.yaml."/>
+
+    <Message Importance="high" Text="Packaged manifests: $(ManifestOutFile), $(CrdManifestOutFile), $(OperatorManifestOutFile)"/>
   </Target>
+
+  <Import Project="SelectableFields.targets"/>
 
 </Project>

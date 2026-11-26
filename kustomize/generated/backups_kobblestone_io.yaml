@@ -81,9 +81,12 @@ spec:
                     nullable: true
                     type: string
                   resources:
-                    description: Compute resources of the backup `Pod`.
+                    description: |-
+                      Compute resources of each container of the backup `Job` (the backup, and the upload to S3 repos), and of the `Job` that deletes the archive (`retainPolicy`). The containers run one after another, so the `Pod` needs no more than this.
+
+                      Default is a request of `10m` CPU and `64Mi` memory, and a limit of `256Mi` memory.
                     externalDocs:
-                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources
                     nullable: true
                     properties:
                       claims:
@@ -224,6 +227,8 @@ spec:
         required:
         - spec
         type: object
+    selectableFields:
+    - jsonPath: .spec.targetRef.name
     served: true
     storage: true
     subresources:

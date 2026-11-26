@@ -86,8 +86,11 @@ public sealed class V1Alpha1Restore
     public record V1Alpha1RestoreJob
     {
         [Description("""
-                     Compute resources of the restore `Pod`.
+                     Compute resources of each container of the restore `Job` (the check for existing data, the download from S3 repos, and the restore). The containers run one after another, so the `Pod` needs no more than this.
+
+                     Default is a request of `10m` CPU and `64Mi` memory, and a limit of `256Mi` memory.
                      """)]
+        [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources")]
         public V1ResourceRequirements? Resources { get; set; }
 
         [Description("""

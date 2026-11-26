@@ -1,0 +1,14 @@
+# Only the operator (kobblestone-operator.yaml): everything in base except the CRDs, which are installed separately
+# (kobblestone-crds.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+patches:
+  - target:
+      kind: CustomResourceDefinition
+    patch: |-
+      $patch: delete
+      kind: Any
+      metadata:
+        name: any

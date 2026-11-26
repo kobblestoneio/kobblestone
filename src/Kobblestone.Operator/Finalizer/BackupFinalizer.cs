@@ -17,6 +17,7 @@ namespace Kobblestone.Operator.Finalizer;
 public sealed class BackupFinalizer(IKubernetesClient client, EventPublisher emitEvent)
     : IEntityFinalizer<V1Alpha1Backup>
 {
+
     public async Task<ReconciliationResult<V1Alpha1Backup>> FinalizeAsync(V1Alpha1Backup entity,
         CancellationToken cancellationToken)
     {
@@ -97,10 +98,14 @@ public sealed class BackupFinalizer(IKubernetesClient client, EventPublisher emi
                 "Waiting for BackupRepo to be released.", requeueAfter: TimeSpan.FromSeconds(10));
         }
 
+        // The cleanup Job deletes the Backup's archive, so it uses the Backup's Job resources.
+        var resources = entity.Spec.Job?.Resources ?? ContainerResources.Helper;
+
         var deletePvcContainer = new V1Container
         {
             Name = "delete",
             Image = ContainerImages.Ubuntu,
+            Resources = resources,
             Command =
             [
                 "/bin/sh", "-c", $"rm -rf /backups/{entity.Uid()}"
@@ -118,6 +123,7 @@ public sealed class BackupFinalizer(IKubernetesClient client, EventPublisher emi
         {
             Name = "delete",
             Image = ContainerImages.AwsCli,
+            Resources = resources,
             Command =
             [
                 "/bin/sh", "-c", $"aws s3 rm s3://{repo.Spec.S3?.Bucket}/{entity.Uid()}.tar.gz"
@@ -164,6 +170,11 @@ public sealed class BackupFinalizer(IKubernetesClient client, EventPublisher emi
             {
                 Template = new V1PodTemplateSpec
                 {
+                    // Lets FileBrowsers find the Pods using the repo's volume (see VolumeUsers).
+                    Metadata = new V1ObjectMeta
+                    {
+                        Labels = new Dictionary<string, string> { { VolumeUsers.BackupRepoLabel, repo.Name() } }
+                    },
                     Spec = new V1PodSpec
                     {
                         RestartPolicy = "Never",

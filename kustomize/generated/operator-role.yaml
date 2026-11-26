@@ -70,6 +70,13 @@ rules:
   - persistentvolumeclaims
   verbs:
   - get
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
   - create
   - update
   - delete
@@ -87,6 +94,21 @@ rules:
   - pods
   verbs:
   - list
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - pods
+  verbs:
+  - watch
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - pods
+  verbs:
+  - list
+  - delete
 - apiGroups:
   - ""
   nonResourceURLs: []
@@ -153,6 +175,16 @@ rules:
   - get
   - create
   - update
+  - delete
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - secrets
+  verbs:
+  - get
+  - create
+  - update
 - apiGroups:
   - ""
   nonResourceURLs: []
@@ -187,6 +219,16 @@ rules:
   - get
   - create
   - update
+  - delete
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - services
+  verbs:
+  - get
+  - create
+  - update
 - apiGroups:
   - ""
   nonResourceURLs: []
@@ -244,6 +286,7 @@ rules:
   - get
   - create
   - update
+  - delete
 - apiGroups:
   - apps
   nonResourceURLs: []
@@ -260,6 +303,29 @@ rules:
   - get
   - create
   - update
+- apiGroups:
+  - apps
+  nonResourceURLs: []
+  resources:
+  - deployments
+  verbs:
+  - watch
+- apiGroups:
+  - apps
+  nonResourceURLs: []
+  resources:
+  - deployments
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - apps
+  nonResourceURLs: []
+  resources:
+  - statefulsets
+  verbs:
+  - get
 - apiGroups:
   - apps
   nonResourceURLs: []
@@ -348,6 +414,26 @@ rules:
   - gateway.networking.k8s.io
   nonResourceURLs: []
   resources:
+  - httproutes
+  verbs:
+  - get
+  - create
+  - update
+  - delete
+- apiGroups:
+  - gateway.networking.k8s.io
+  nonResourceURLs: []
+  resources:
+  - tcproutes
+  verbs:
+  - get
+  - create
+  - update
+  - delete
+- apiGroups:
+  - gateway.networking.k8s.io
+  nonResourceURLs: []
+  resources:
   - tcproutes
   verbs:
   - get
@@ -378,8 +464,8 @@ rules:
   - kobblestone.io
   resources:
   - accounts
-  - backuprepos
   - commandgroups
+  - filebrowsers
   - networks
   - routers
   verbs:
@@ -397,14 +483,7 @@ rules:
 - apiGroups:
   - kobblestone.io
   resources:
-  - backuprepos/status
-  verbs:
-  - get
-  - update
-  - patch
-- apiGroups:
-  - kobblestone.io
-  resources:
+  - backuprepos
   - backups
   - bots
   - restores
@@ -413,6 +492,14 @@ rules:
   - list
   - watch
   - update
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - backuprepos/status
+  verbs:
+  - get
+  - update
+  - patch
 - apiGroups:
   - kobblestone.io
   resources:
@@ -451,6 +538,14 @@ rules:
   - kobblestone.io
   resources:
   - commands/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - filebrowsers/status
   verbs:
   - get
   - update
@@ -507,6 +602,16 @@ rules:
   - get
   - update
   - patch
+- apiGroups:
+  - networking.k8s.io
+  nonResourceURLs: []
+  resources:
+  - networkpolicies
+  verbs:
+  - get
+  - create
+  - update
+  - delete
 - apiGroups:
   - networking.k8s.io
   nonResourceURLs: []

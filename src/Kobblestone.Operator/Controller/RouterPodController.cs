@@ -65,7 +65,9 @@ public class RouterPodController(
 
         var routerApiBaseUrl = $"http://{entity.Status.PodIP}:8080";
 
-        var routes = await client.ListAsync<V1Alpha1Route>(entity.Namespace(), cancellationToken: cancellationToken)
+        var routes = await client.ListAsync<V1Alpha1Route>(entity.Namespace(),
+                fieldSelector: SelectableFields.EqualTo(SelectableFields.ParentRouterName, router.Name()),
+                cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         var currentRoutes = await routerApi.GetRoutesAsync(routerApiBaseUrl, cancellationToken).ConfigureAwait(false);

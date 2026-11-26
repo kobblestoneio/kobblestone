@@ -271,6 +271,10 @@ public sealed class RestoreController(IKubernetesClient client, EventPublisher e
                 .ConfigureAwait(false);
         }
 
+        // Set on every container rather than the Pod: pod-level resources need Kubernetes 1.34. The containers run one
+        // after another (checks and download, then restore), so the Pod does not need more than one of them.
+        var resources = entity.Spec.Job?.Resources ?? ContainerResources.Helper;
+
         var job = new V1Job
         {
             Metadata = new V1ObjectMeta
@@ -289,10 +293,20 @@ public sealed class RestoreController(IKubernetesClient client, EventPublisher e
                 ActiveDeadlineSeconds = entity.Spec.Job?.ActiveDeadlineSeconds,
                 Template = new V1PodTemplateSpec
                 {
+                    // Pods do not inherit the labels of their Job. They let FileBrowsers find the Pods using the
+                    // server's and the repo's volumes (see VolumeUsers).
+                    Metadata = new V1ObjectMeta
+                    {
+                        Labels = new Dictionary<string, string>
+                        {
+                            { ServerOperations.RestoreLabel, entity.Name() },
+                            { VolumeUsers.TargetServerLabel, entity.Spec.TargetRef.Name },
+                            { VolumeUsers.BackupRepoLabel, repo.Name() },
+                        },
+                    },
                     Spec = new V1PodSpec
                     {
                         RestartPolicy = "Never",
-                        Resources = entity.Spec.Job?.Resources,
                         Tolerations = entity.Spec.Job?.Tolerations,
                         Volumes =
                         [
@@ -317,6 +331,7 @@ public sealed class RestoreController(IKubernetesClient client, EventPublisher e
                             {
                                 Name = "restore",
                                 Image = entity.Spec.Job?.Image ?? ContainerImages.Ubuntu,
+                                Resources = resources,
                                 Command =
                                 [
                                     "/bin/sh",
@@ -374,6 +389,7 @@ public sealed class RestoreController(IKubernetesClient client, EventPublisher e
         {
             Name = "ensure-empty-target",
             Image = entity.Spec.Job?.Image ?? ContainerImages.Ubuntu,
+            Resources = resources,
             Command =
             [
                 "/bin/sh",
@@ -411,6 +427,7 @@ public sealed class RestoreController(IKubernetesClient client, EventPublisher e
             {
                 Name = "download",
                 Image = ContainerImages.AwsCli,
+                Resources = resources,
                 Command =
                 [
                     "/bin/sh",

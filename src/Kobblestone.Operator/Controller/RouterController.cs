@@ -34,7 +34,7 @@ public sealed class RouterController(IKubernetesClient client) : IEntityControll
 
         // The RouterServiceController queues this router whenever the Service changes, e.g. when its load balancer
         // got an external IP.
-        entity.Status.Address = service.GetIpAddress();
+        entity.Status.Address = service.GetAddress();
 
         entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
 

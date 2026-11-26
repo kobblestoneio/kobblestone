@@ -1,0 +1,14 @@
+# Only the CRDs (kobblestone-crds.yaml): everything in base except the operator itself. The build fails if anything
+# other than a CustomResourceDefinition is left, so extend the kinds below when the operator gains new resource kinds.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+patches:
+  - target:
+      kind: "^(Namespace|ServiceAccount|ClusterRole|ClusterRoleBinding|Role|RoleBinding|Deployment|Service|ConfigMap|Secret|MutatingWebhookConfiguration|ValidatingWebhookConfiguration)$"
+    patch: |-
+      $patch: delete
+      kind: Any
+      metadata:
+        name: any

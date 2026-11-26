@@ -19,7 +19,16 @@ public class RconConnectionFactory(ILoggerFactory loggerFactory) : IRconConnecti
             timeout: ((uint?)timeout?.TotalMilliseconds) ?? 0,
             logger: loggerFactory.CreateLogger("Rcon"));
 
-        await rcon.ConnectAsync().ConfigureAwait(false);
+        try
+        {
+            // CoreRCON does not take cancellation tokens: stop waiting when the token is cancelled.
+            await rcon.ConnectAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            rcon.Dispose();
+            throw;
+        }
 
         return new RconConnection(rcon);
     }

@@ -136,6 +136,8 @@ spec:
         required:
         - spec
         type: object
+    selectableFields:
+    - jsonPath: .spec.persistentVolumeClaim.name
     served: true
     storage: true
     subresources:

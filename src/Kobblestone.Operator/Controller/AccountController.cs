@@ -354,6 +354,7 @@ public sealed class AccountController(IKubernetesClient client) : IEntityControl
                         Image =
                             account.Spec.Authorization?.Pod?.Image ?? ContainerImages.AccountAuth,
                         ImagePullPolicy = account.Spec.Authorization?.Pod?.ImagePullPolicy,
+                        Resources = account.Spec.Authorization?.Pod?.Resources ?? ContainerResources.Helper,
                         TerminationMessagePolicy = "FallbackToLogsOnError",
                         Env =
                         [

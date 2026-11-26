@@ -14,7 +14,7 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - description: "IP address of the `Router`'s `Service`. External addresses are preferred: the IP assigned by a load balancer, then the first of `externalIPs`, then the cluster IP."
+    - description: "Address of the `Router`'s `Service`. External addresses are preferred: the IP or hostname assigned by a load balancer, then the first of `externalIPs`, then the DNS name of the `Service` in the cluster (`<name>.<namespace>.svc.cluster.local`)."
       jsonPath: .status.address
       name: Address
       priority: 0
@@ -516,7 +516,10 @@ spec:
                 title: Replicas
                 type: integer
               resources:
-                description: Resource requirements for the `Router` pods.
+                description: |-
+                  Resource requirements for the `Router` pods.
+
+                  Default is no requests or limits.
                 externalDocs:
                   url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                 nullable: true
@@ -597,7 +600,7 @@ spec:
                 items:
                   properties:
                     backend:
-                      description: Address (IP+port) of the target backend.
+                      description: Address (`host:port`) of the target backend.
                       example: server.example.svc.cluster.local:25565
                       type: string
                     hostname:
@@ -650,7 +653,7 @@ spec:
           status:
             properties:
               address:
-                description: "IP address of the `Router`'s `Service`. External addresses are preferred: the IP assigned by a load balancer, then the first of `externalIPs`, then the cluster IP."
+                description: "Address of the `Router`'s `Service`. External addresses are preferred: the IP or hostname assigned by a load balancer, then the first of `externalIPs`, then the DNS name of the `Service` in the cluster (`<name>.<namespace>.svc.cluster.local`)."
                 nullable: true
                 type: string
               conditions:

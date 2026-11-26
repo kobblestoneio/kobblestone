@@ -6,15 +6,15 @@
   </ItemGroup>
   <ItemGroup>
     <PackageVersion Include="CoreRCON" Version="5.4.2" />
-    <PackageVersion Include="KubeOps.Generator" Version="13.3.3">
+    <PackageVersion Include="KubeOps.Generator" Version="14.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageVersion>
-    <PackageVersion Include="KubeOps.Operator" Version="13.3.3" />
-    <PackageVersion Include="KubernetesClient" Version="19.0.2" />
-    <PackageVersion Include="KubernetesCRDModelGen.Models.gateway.networking.k8s.io" Version="1.57.0" />
-    <PackageVersion Include="MessagePack" Version="3.1.11" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
-    <PackageVersion Include="Tomlyn" Version="2.10.1" />
+    <PackageVersion Include="KubeOps.Operator" Version="14.0.0" />
+    <PackageVersion Include="KubernetesClient" Version="21.0.41" />
+    <PackageVersion Include="KubernetesCRDModelGen.Models.gateway.networking.k8s.io" Version="1.59.0" />
+    <PackageVersion Include="MessagePack" Version="3.1.12" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.15" />
+    <PackageVersion Include="Tomlyn" Version="2.11.1" />
   </ItemGroup>
 </Project>

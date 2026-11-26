@@ -155,7 +155,7 @@ public sealed class RouteController(
 
                 return server is null
                     ? null
-                    : $"{server.Name()}.{server.Namespace()}.svc.cluster.local:{(server.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort)}";
+                    : $"{ServiceExtensions.ServiceDnsName(server.Name(), server.Namespace())}:{(server.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort)}";
             }
             case "Network":
             {
@@ -165,7 +165,7 @@ public sealed class RouteController(
 
                 return network is null
                     ? null
-                    : $"{network.Name()}.{network.Namespace()}.svc.cluster.local:{(network.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort)}";
+                    : $"{ServiceExtensions.ServiceDnsName(network.Name(), network.Namespace())}:{(network.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort)}";
             }
             case "Router":
             {
@@ -176,11 +176,11 @@ public sealed class RouteController(
 
                 return router is null
                     ? null
-                    : $"{router.Name()}.{router.Namespace()}.svc.cluster.local:{(router.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort)}";
+                    : $"{ServiceExtensions.ServiceDnsName(router.Name(), router.Namespace())}:{(router.Spec.Service?.Port ?? MinecraftConstants.DefaultMinecraftPort)}";
             }
             case "Service":
                 return
-                    $"{backendRef.Name}.{backendRef.Namespace ?? route.Namespace()}.svc.cluster.local:{(backendRef.Port ?? MinecraftConstants.DefaultMinecraftPort)}";
+                    $"{ServiceExtensions.ServiceDnsName(backendRef.Name, backendRef.Namespace ?? route.Namespace())}:{(backendRef.Port ?? MinecraftConstants.DefaultMinecraftPort)}";
             default:
                 return null;
         }

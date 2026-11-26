@@ -1,9 +1,6 @@
 # EditorConfig: https://editorconfig.org
 # Based on the conventions of the .NET repositories (dotnet/runtime, dotnet/aspnetcore, dotnet/roslyn).
-# Code is formatted with CSharpier (`dotnet tool restore`, then `dotnet csharpier format .`), which only reads
-# indentation, line length and line endings from here. The csharp_* formatting rules below apply to IDEs and the Roslyn
-# language server; do not run `dotnet format whitespace`, its layout differs from CSharpier's. The code style and
-# naming rules are used by `dotnet format style` and the IDEs.
+# The formatting, code style and naming rules below are used by IDEs, the Roslyn language server and `dotnet format`.
 
 root = true
 

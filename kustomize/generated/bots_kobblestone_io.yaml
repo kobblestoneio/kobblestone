@@ -1380,7 +1380,10 @@ spec:
                 title: Pod
                 type: object
               resources:
-                description: Resource requirements of the `Bot` container.
+                description: |-
+                  Resource requirements of the `Bot` container.
+
+                  Default is no requests or limits.
                 externalDocs:
                   url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources
                 nullable: true
@@ -1570,6 +1573,8 @@ spec:
         required:
         - spec
         type: object
+    selectableFields:
+    - jsonPath: .spec.auth.accountRef.name
     served: true
     storage: true
     subresources:

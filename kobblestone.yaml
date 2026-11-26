@@ -441,6 +441,33 @@ spec:
                           url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                         nullable: true
                         type: object
+                      resources:
+                        description: |-
+                          Compute resources of the authorization container.
+
+                          Default is a request of `10m` CPU and `64Mi` memory, and a limit of `256Mi` memory.
+                        externalDocs:
+                          url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources
+                        nullable: true
+                        properties:
+                          claims:
+                            items:
+                              properties:
+                                name:
+                                  type: string
+                                request:
+                                  type: string
+                              type: object
+                            type: array
+                          limits:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          requests:
+                            additionalProperties:
+                              type: string
+                            type: object
+                        type: object
                       tolerations:
                         description: Tolerations of the authorization `Pod`.
                         externalDocs:
@@ -729,6 +756,8 @@ spec:
         required:
         - spec
         type: object
+    selectableFields:
+    - jsonPath: .spec.persistentVolumeClaim.name
     served: true
     storage: true
     subresources:
@@ -819,9 +848,12 @@ spec:
                     nullable: true
                     type: string
                   resources:
-                    description: Compute resources of the backup `Pod`.
+                    description: |-
+                      Compute resources of each container of the backup `Job` (the backup, and the upload to S3 repos), and of the `Job` that deletes the archive (`retainPolicy`). The containers run one after another, so the `Pod` needs no more than this.
+
+                      Default is a request of `10m` CPU and `64Mi` memory, and a limit of `256Mi` memory.
                     externalDocs:
-                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources
                     nullable: true
                     properties:
                       claims:
@@ -962,6 +994,8 @@ spec:
         required:
         - spec
         type: object
+    selectableFields:
+    - jsonPath: .spec.targetRef.name
     served: true
     storage: true
     subresources:
@@ -2352,7 +2386,10 @@ spec:
                 title: Pod
                 type: object
               resources:
-                description: Resource requirements of the `Bot` container.
+                description: |-
+                  Resource requirements of the `Bot` container.
+
+                  Default is no requests or limits.
                 externalDocs:
                   url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources
                 nullable: true
@@ -2546,6 +2583,8 @@ spec:
         required:
         - spec
         type: object
+    selectableFields:
+    - jsonPath: .spec.auth.accountRef.name
     served: true
     storage: true
     subresources:
@@ -3034,6 +3073,1035 @@ kind: CustomResourceDefinition
 metadata:
   labels:
     operator: kobblestone
+  name: filebrowsers.kobblestone.io
+spec:
+  conversion:
+    strategy: None
+  group: kobblestone.io
+  names:
+    kind: FileBrowser
+    listKind: FileBrowserList
+    plural: filebrowsers
+    singular: filebrowser
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: |-
+        Current phase of the `FileBrowser`.
+
+        Values:
+        - `Pending`: The file manager is starting, or waiting for its node.
+        - `Preparing`: `Backup` targets are being extracted.
+        - `Ready`: All targets are ready, the interfaces are serving.
+        - `Expired`: `expiresAfterSeconds` has passed. The file manager and its resources are deleted.
+        - `Failed`: A target cannot be served, see `message` and `targets`.
+      jsonPath: .status.phase
+      name: Status
+      priority: 0
+      type: string
+    - description: 'Address of the web interface: the `httpRoute` hostname, or else
+        the address and port of its `Service`. External addresses are preferred: the
+        IP or hostname assigned by a load balancer, then the first of `externalIPs`,
+        then the DNS name of the `Service` in the cluster (`<name>.<namespace>.svc.cluster.local`).'
+      jsonPath: .status.web
+      name: Web
+      priority: 0
+      type: string
+    - description: Address of the SFTP interface (address and port of its `Service`,
+        preferring external addresses as for `web`).
+      jsonPath: .status.sftp
+      name: SFTP
+      priority: 1
+      type: string
+    - description: 'Address of the WebDAV interface: the `httpRoute` hostname, or
+        else the address and port of its `Service`, preferring external addresses
+        as for `web`.'
+      jsonPath: .status.webdav
+      name: WebDAV
+      priority: 1
+      type: string
+    - description: Address of the REST API (DNS name and port of its `Service` in
+        the cluster, or an external address as for `web`).
+      jsonPath: .status.api
+      name: API
+      priority: 1
+      type: string
+    - description: Time when the `FileBrowser` expires (`expiresAfterSeconds`).
+      format: date-time
+      jsonPath: .status.expiresAt
+      name: Expires
+      priority: 0
+      type: string
+    - description: Message explaining the current state of the `FileBrowser`.
+      jsonPath: .status.message
+      name: Message
+      priority: 0
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          A `FileBrowser` gives access to files: the data of a `Server`, the content of a `Backup`, or the archives in a `BackupRepo`. The operator runs a file manager ([SFTPGo](https://github.com/drakkan/sftpgo)) next to the data and exposes the interfaces you enable: a browser interface (`web`), `sftp`, `webdav` and a REST `api`.
+
+          While a target `Server` is running, the file manager runs on the server's node, since the server's volume can only be mounted there. The server is not restarted or changed for this.
+
+          **Note**: Access to a server's files is effectively control over the server (plugins, mods, configuration). Restrict who can create `FileBrowser`s with RBAC, and only expose them to people you trust.
+        properties:
+          spec:
+            properties:
+              api:
+                description: |-
+                  REST API ([SFTPGo's user API](https://sftpgo.stoplight.io/docs/sftpgo/openapi.yaml)) for applications that build their own interface, e.g. a hosting panel. Requests act as a user, with that user's permissions: `X-SFTPGO-API-KEY: kobblestone.<token>.<user>`.
+
+                  The API is only reachable through its `Service`; there is no route for it.
+                nullable: true
+                properties:
+                  allowedFrom:
+                    description: Only these peers may reach the API (a `NetworkPolicy`
+                      for the file manager `Pod`). Without it, the API is reachable
+                      from everywhere its `Service` is.
+                    items:
+                      properties:
+                        ipBlock:
+                          properties:
+                            cidr:
+                              type: string
+                            except:
+                              items:
+                                type: string
+                              type: array
+                          type: object
+                        namespaceSelector:
+                          properties:
+                            matchExpressions:
+                              items:
+                                properties:
+                                  key:
+                                    type: string
+                                  operator:
+                                    type: string
+                                  values:
+                                    items:
+                                      type: string
+                                    type: array
+                                type: object
+                              type: array
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              type: object
+                          type: object
+                        podSelector:
+                          properties:
+                            matchExpressions:
+                              items:
+                                properties:
+                                  key:
+                                    type: string
+                                  operator:
+                                    type: string
+                                  values:
+                                    items:
+                                      type: string
+                                    type: array
+                                type: object
+                              type: array
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              type: object
+                          type: object
+                      type: object
+                    nullable: true
+                    type: array
+                  enabled:
+                    description: Whether the REST API is enabled.
+                    type: boolean
+                  service:
+                    description: |-
+                      Configures the `Service` of the API (`<name>-api`).
+
+                      Default port is `80`.
+                    nullable: true
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: Annotations of the `Service`, e.g. for load balancer
+                          settings.
+                        nullable: true
+                        type: object
+                      port:
+                        description: Port of the `Service`.
+                        exclusiveMaximum: false
+                        exclusiveMinimum: false
+                        format: int32
+                        maximum: 65535
+                        minimum: 1
+                        nullable: true
+                        type: integer
+                      type:
+                        description: |-
+                          Type of the `Service`.
+
+                          Default is `ClusterIP`.
+                        externalDocs:
+                          url: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+                        nullable: true
+                        type: string
+                    type: object
+                  tokenSecretRef:
+                    description: |-
+                      Reference to the key of a `Secret` holding the API token (letters, digits, `_` and `-`, at least 32 characters). Changes are applied within a minute.
+
+                      Without it, a token is generated (key `api-token` in the `Secret` named in `status.credentialsSecretRef`).
+                    nullable: true
+                    properties:
+                      key:
+                        description: Name of the key.
+                        type: string
+                      name:
+                        description: Name of the `Secret`.
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                required:
+                - enabled
+                title: API
+                type: object
+                x-kubernetes-validations:
+                - message: allowedFrom and tokenSecretRef require enabled.
+                  rule: self.enabled || (!has(self.allowedFrom) && !has(self.tokenSecretRef))
+              expiresAfterSeconds:
+                description: |-
+                  Seconds after which the `FileBrowser` expires, counted from its creation, e.g. `7200` for two hours. An expired `FileBrowser` stops serving: its file manager, `Service`s, routes, `NetworkPolicy` and credentials are deleted, and `status.phase` is `Expired`. The `FileBrowser` itself is kept until it is deleted.
+
+                  Without it, access is permanent. Changing it moves `status.expiresAt`; extending an expired `FileBrowser` brings it back.
+                example: 7200
+                exclusiveMinimum: false
+                format: int64
+                minimum: 1
+                nullable: true
+                type: integer
+              pod:
+                description: Configures the file manager's `Pod`.
+                nullable: true
+                properties:
+                  image:
+                    description: |-
+                      Custom image of the file manager.
+
+                      Default is `drakkan/sftpgo` ([SFTPGo](https://github.com/drakkan/sftpgo)) in the version bundled with Kobblestone. Other images must be compatible with it.
+                    nullable: true
+                    type: string
+                  imagePullPolicy:
+                    description: Image pull policy of the file manager.
+                    nullable: true
+                    type: string
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Node selector of the file manager `Pod`.
+
+                      Only applies while no target pins the `Pod` to a node: the volume of a running `Server`, or another `Pod` using a `ReadWriteOnce` volume of a target, always pins it to that node.
+                    nullable: true
+                    type: object
+                  resources:
+                    description: |-
+                      Resource requirements of the file manager container, also used by the containers that extract `Backup` targets before it starts (they run one after another, so the `Pod` does not need more).
+
+                      Default is a request of `10m` CPU and `64Mi` memory, and a limit of `256Mi` memory.
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources
+                    nullable: true
+                    properties:
+                      claims:
+                        items:
+                          properties:
+                            name:
+                              type: string
+                            request:
+                              type: string
+                          type: object
+                        type: array
+                      limits:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      requests:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
+                  scratchSize:
+                    description: |-
+                      Size limit of the scratch volume (`emptyDir`) that `Backup` targets are extracted into, e.g. `10Gi`. It must hold the extracted worlds of all `Backup` targets, and, for `S3` repos, also the archive while it is extracted. A too small volume makes the target `Failed`.
+
+                      Default is no limit (the node's free space).
+                    example: 10Gi
+                    nullable: true
+                    type: string
+                  tolerations:
+                    description: Tolerations of the file manager `Pod`.
+                    items:
+                      properties:
+                        effect:
+                          type: string
+                        key:
+                          type: string
+                        operator:
+                          type: string
+                        tolerationSeconds:
+                          format: int64
+                          nullable: true
+                          type: integer
+                        value:
+                          type: string
+                      type: object
+                    nullable: true
+                    type: array
+                type: object
+              sftp:
+                description: SFTP, for clients like WinSCP, FileZilla or `sftp`/`rsync`
+                  over SSH. Users log in with their password or SSH key. The host
+                  key is generated once and kept in the credentials `Secret`.
+                nullable: true
+                properties:
+                  allowedFrom:
+                    description: Only these peers may reach SFTP (a `NetworkPolicy`
+                      for the file manager `Pod`). Without it, SFTP is reachable from
+                      everywhere its `Service` is.
+                    items:
+                      properties:
+                        ipBlock:
+                          properties:
+                            cidr:
+                              type: string
+                            except:
+                              items:
+                                type: string
+                              type: array
+                          type: object
+                        namespaceSelector:
+                          properties:
+                            matchExpressions:
+                              items:
+                                properties:
+                                  key:
+                                    type: string
+                                  operator:
+                                    type: string
+                                  values:
+                                    items:
+                                      type: string
+                                    type: array
+                                type: object
+                              type: array
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              type: object
+                          type: object
+                        podSelector:
+                          properties:
+                            matchExpressions:
+                              items:
+                                properties:
+                                  key:
+                                    type: string
+                                  operator:
+                                    type: string
+                                  values:
+                                    items:
+                                      type: string
+                                    type: array
+                                type: object
+                              type: array
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              type: object
+                          type: object
+                      type: object
+                    nullable: true
+                    type: array
+                  enabled:
+                    description: Whether SFTP is enabled.
+                    type: boolean
+                  service:
+                    description: |-
+                      Configures the `Service` of SFTP (`<name>-sftp`).
+
+                      Default port is `22`.
+                    nullable: true
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: Annotations of the `Service`, e.g. for load balancer
+                          settings.
+                        nullable: true
+                        type: object
+                      port:
+                        description: Port of the `Service`.
+                        exclusiveMaximum: false
+                        exclusiveMinimum: false
+                        format: int32
+                        maximum: 65535
+                        minimum: 1
+                        nullable: true
+                        type: integer
+                      type:
+                        description: |-
+                          Type of the `Service`.
+
+                          Default is `ClusterIP`.
+                        externalDocs:
+                          url: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+                        nullable: true
+                        type: string
+                    type: object
+                  tcpRoute:
+                    description: |-
+                      Configures an optional `TCPRoute` (`<name>-sftp`) exposing SFTP, an alternative to a `LoadBalancer` `Service`.
+
+                      **Note**: Using `TCPRoute` requires at least [Gateway API v1.6.0](https://gateway-api.sigs.k8s.io/reference/api-spec/1.6/spec/) to be installed on your cluster.
+                    nullable: true
+                    properties:
+                      parentRefs:
+                        description: Gateways (or other parents) the `TCPRoute` attaches
+                          to, e.g. a listener of the gateway for SFTP (`sectionName`).
+                        items:
+                          properties:
+                            group:
+                              nullable: true
+                              type: string
+                            kind:
+                              nullable: true
+                              type: string
+                            name:
+                              type: string
+                            namespace:
+                              nullable: true
+                              type: string
+                            port:
+                              format: int32
+                              nullable: true
+                              type: integer
+                            sectionName:
+                              nullable: true
+                              type: string
+                          type: object
+                        type: array
+                    required:
+                    - parentRefs
+                    title: Gateway API
+                    type: object
+                required:
+                - enabled
+                title: SFTP
+                type: object
+                x-kubernetes-validations:
+                - message: allowedFrom requires enabled.
+                  rule: self.enabled || !has(self.allowedFrom)
+              targets:
+                description: What to browse. With a single target, users see its files
+                  directly; with several, each target is a folder named after the
+                  target.
+                items:
+                  properties:
+                    name:
+                      description: |-
+                        Name of the target: the folder users see it as when there are several targets.
+
+                        Default is the name of the referenced object.
+                      maxLength: 63
+                      minLength: 1
+                      nullable: true
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    readOnly:
+                      description: |-
+                        Whether the target can only be read. For volumes, enforced on the mount, so nothing can be changed, uploaded or deleted. `users[].permissions` can only restrict access further.
+
+                        Default is `false` for `Server` targets and `true` for `BackupRepo` targets. `Backup` targets are always read-only.
+                      nullable: true
+                      type: boolean
+                    targetRef:
+                      description: Reference to the target in the same namespace.
+                      properties:
+                        kind:
+                          description: |-
+                            Kind of the target.
+
+                            Values:
+                            - `Server`: The data of a `Server` (its `/data` folder). The `Server` must have `storage`. Do not edit world or player data while the server runs: it keeps the world in memory and overwrites the files when it saves. Configs, plugins and mods can be edited any time and apply on the next restart.
+                            - `Backup`: The content of a `Completed` `Backup`: the server's data at backup time. The archive is extracted into the file manager's scratch volume (`pod.scratchSize`) before the interfaces start.
+                            - `BackupRepo`: The archives in a `BackupRepo`: one folder per backup (`<backup UID>/*.tar.gz`) in volume repos, one object per backup (`<backup UID>.tar.gz`) in S3 repos.
+
+                            Default is `Server`.
+                          enum:
+                          - Server
+                          - Backup
+                          - BackupRepo
+                          nullable: true
+                          type: string
+                        name:
+                          description: Name of the target.
+                          maxLength: 253
+                          minLength: 1
+                          type: string
+                      required:
+                      - name
+                      type: object
+                  required:
+                  - targetRef
+                  type: object
+                  x-kubernetes-validations:
+                  - message: Backup targets are always read-only.
+                    rule: '!has(self.readOnly) || self.readOnly || !has(self.targetRef.kind)
+                      || self.targetRef.kind != ''Backup'''
+                maxItems: 16
+                minItems: 1
+                type: array
+                x-kubernetes-validations:
+                - message: Target names must be unique. Set `name` on targets that
+                    reference objects of the same name.
+                  rule: 'self.all(a, self.exists_one(b, (has(b.name) ? b.name : b.targetRef.name)
+                    == (has(a.name) ? a.name : a.targetRef.name)))'
+              users:
+                description: |-
+                  Users for all interfaces.
+
+                  Without it, one user with full access is generated: its login is in the `Secret` named in `status.credentialsSecretRef` (keys `username` and `password`).
+                items:
+                  properties:
+                    authorizedKeysSecretRef:
+                      description: Reference to the key of a `Secret` holding the
+                        user's SSH public keys for SFTP, one per line (`authorized_keys`
+                        format).
+                      nullable: true
+                      properties:
+                        key:
+                          description: Name of the key.
+                          type: string
+                        name:
+                          description: Name of the `Secret`.
+                          type: string
+                      required:
+                      - key
+                      - name
+                      type: object
+                    name:
+                      description: Name the user logs in with.
+                      maxLength: 63
+                      minLength: 1
+                      pattern: ^[a-zA-Z0-9][a-zA-Z0-9._-]*$
+                      type: string
+                    passwordSecretRef:
+                      description: Reference to the key of a `Secret` holding the
+                        user's password. Changes are applied within a minute.
+                      nullable: true
+                      properties:
+                        key:
+                          description: Name of the key.
+                          type: string
+                        name:
+                          description: Name of the `Secret`.
+                          type: string
+                      required:
+                      - key
+                      - name
+                      type: object
+                    permissions:
+                      description: |-
+                        Permissions of the user. Paths are the paths the user sees: with several targets, they start with the target's folder (e.g. `/live/plugins`). The most specific path wins.
+
+                        Default is full access, limited by `targets[].readOnly`. Permissions can only restrict, never grant more than a target's `readOnly` allows.
+                      items:
+                        properties:
+                          access:
+                            description: |-
+                              Access to the path.
+
+                              Values:
+                              - `None`: The path cannot be listed or read.
+                              - `ReadOnly`: Files can be listed and downloaded.
+                              - `ReadWrite`: Full access.
+                            enum:
+                            - None
+                            - ReadOnly
+                            - ReadWrite
+                            type: string
+                          path:
+                            description: Path the permission applies to, including
+                              everything below it.
+                            example: /plugins
+                            maxLength: 1024
+                            minLength: 1
+                            pattern: ^/.*
+                            type: string
+                        required:
+                        - access
+                        - path
+                        type: object
+                        x-kubernetes-validations:
+                        - message: The root `/` cannot have access `None`; restrict
+                            the paths below it instead.
+                          rule: self.path != '/' || self.access != 'None'
+                      maxItems: 64
+                      nullable: true
+                      type: array
+                  required:
+                  - name
+                  type: object
+                  x-kubernetes-validations:
+                  - message: A user needs a passwordSecretRef or an authorizedKeysSecretRef.
+                    rule: has(self.passwordSecretRef) || has(self.authorizedKeysSecretRef)
+                maxItems: 32
+                minItems: 1
+                nullable: true
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              web:
+                description: 'Browser interface: a web client to browse, upload, download
+                  and edit files, always with login.'
+                nullable: true
+                properties:
+                  allowedFrom:
+                    description: Only these peers may reach the web interface (a `NetworkPolicy`
+                      for the file manager `Pod`). Without it, the interface is reachable
+                      from everywhere its `Service` is.
+                    items:
+                      properties:
+                        ipBlock:
+                          properties:
+                            cidr:
+                              type: string
+                            except:
+                              items:
+                                type: string
+                              type: array
+                          type: object
+                        namespaceSelector:
+                          properties:
+                            matchExpressions:
+                              items:
+                                properties:
+                                  key:
+                                    type: string
+                                  operator:
+                                    type: string
+                                  values:
+                                    items:
+                                      type: string
+                                    type: array
+                                type: object
+                              type: array
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              type: object
+                          type: object
+                        podSelector:
+                          properties:
+                            matchExpressions:
+                              items:
+                                properties:
+                                  key:
+                                    type: string
+                                  operator:
+                                    type: string
+                                  values:
+                                    items:
+                                      type: string
+                                    type: array
+                                type: object
+                              type: array
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              type: object
+                          type: object
+                      type: object
+                    nullable: true
+                    type: array
+                  embedding:
+                    description: |-
+                      Allows embedding the web interface into other sites (`Content-Security-Policy: frame-ancestors`). Without it, embedding is forbidden.
+
+                      **Note**: The login session cookie is `SameSite=Strict`, so the embedding site must be on the same site (registrable domain) as the web interface, e.g. `panel.example.com` and `files.example.com`.
+                    nullable: true
+                    properties:
+                      allowedOrigins:
+                        description: Origins that may embed the web interface.
+                        example: https://panel.example.com
+                        items:
+                          type: string
+                        maxItems: 16
+                        minItems: 1
+                        type: array
+                    required:
+                    - allowedOrigins
+                    type: object
+                  enabled:
+                    description: Whether the web interface is enabled.
+                    type: boolean
+                  httpRoute:
+                    description: |-
+                      Configures an optional `HTTPRoute` (`<name>-web`) exposing the web interface under a hostname.
+
+                      Removing it deletes the `HTTPRoute`.
+                    nullable: true
+                    properties:
+                      hostname:
+                        description: Hostname under which the interface is reachable.
+                        example: files.example.com
+                        type: string
+                      parentRefs:
+                        description: Gateways (or other parents) the `HTTPRoute` attaches
+                          to.
+                        externalDocs:
+                          url: https://gateway-api.sigs.k8s.io/reference/spec/#httproute
+                        items:
+                          properties:
+                            group:
+                              nullable: true
+                              type: string
+                            kind:
+                              nullable: true
+                              type: string
+                            name:
+                              type: string
+                            namespace:
+                              nullable: true
+                              type: string
+                            port:
+                              format: int32
+                              nullable: true
+                              type: integer
+                            sectionName:
+                              nullable: true
+                              type: string
+                          type: object
+                        type: array
+                    required:
+                    - hostname
+                    - parentRefs
+                    title: Gateway API
+                    type: object
+                  service:
+                    description: |-
+                      Configures the `Service` of the web interface (`<name>-web`).
+
+                      Default port is `80`.
+                    nullable: true
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: Annotations of the `Service`, e.g. for load balancer
+                          settings.
+                        nullable: true
+                        type: object
+                      port:
+                        description: Port of the `Service`.
+                        exclusiveMaximum: false
+                        exclusiveMinimum: false
+                        format: int32
+                        maximum: 65535
+                        minimum: 1
+                        nullable: true
+                        type: integer
+                      type:
+                        description: |-
+                          Type of the `Service`.
+
+                          Default is `ClusterIP`.
+                        externalDocs:
+                          url: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+                        nullable: true
+                        type: string
+                    type: object
+                required:
+                - enabled
+                type: object
+                x-kubernetes-validations:
+                - message: embedding and allowedFrom require enabled.
+                  rule: self.enabled || (!has(self.embedding) && !has(self.allowedFrom))
+              webdav:
+                description: |-
+                  WebDAV, e.g. to mount the files as a network drive in Windows or Finder. Users log in with their password.
+
+                  **Note**: WebDAV sends the password with every request. Only expose it via HTTPS (e.g. an `httpRoute` on a gateway with TLS); Windows also refuses to use it without HTTPS by default.
+                nullable: true
+                properties:
+                  allowedFrom:
+                    description: Only these peers may reach WebDAV (a `NetworkPolicy`
+                      for the file manager `Pod`). Without it, WebDAV is reachable
+                      from everywhere its `Service` is.
+                    items:
+                      properties:
+                        ipBlock:
+                          properties:
+                            cidr:
+                              type: string
+                            except:
+                              items:
+                                type: string
+                              type: array
+                          type: object
+                        namespaceSelector:
+                          properties:
+                            matchExpressions:
+                              items:
+                                properties:
+                                  key:
+                                    type: string
+                                  operator:
+                                    type: string
+                                  values:
+                                    items:
+                                      type: string
+                                    type: array
+                                type: object
+                              type: array
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              type: object
+                          type: object
+                        podSelector:
+                          properties:
+                            matchExpressions:
+                              items:
+                                properties:
+                                  key:
+                                    type: string
+                                  operator:
+                                    type: string
+                                  values:
+                                    items:
+                                      type: string
+                                    type: array
+                                type: object
+                              type: array
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              type: object
+                          type: object
+                      type: object
+                    nullable: true
+                    type: array
+                  enabled:
+                    description: Whether WebDAV is enabled.
+                    type: boolean
+                  httpRoute:
+                    description: |-
+                      Configures an optional `HTTPRoute` (`<name>-webdav`) exposing WebDAV under a hostname.
+
+                      Removing it deletes the `HTTPRoute`.
+                    nullable: true
+                    properties:
+                      hostname:
+                        description: Hostname under which the interface is reachable.
+                        example: files.example.com
+                        type: string
+                      parentRefs:
+                        description: Gateways (or other parents) the `HTTPRoute` attaches
+                          to.
+                        externalDocs:
+                          url: https://gateway-api.sigs.k8s.io/reference/spec/#httproute
+                        items:
+                          properties:
+                            group:
+                              nullable: true
+                              type: string
+                            kind:
+                              nullable: true
+                              type: string
+                            name:
+                              type: string
+                            namespace:
+                              nullable: true
+                              type: string
+                            port:
+                              format: int32
+                              nullable: true
+                              type: integer
+                            sectionName:
+                              nullable: true
+                              type: string
+                          type: object
+                        type: array
+                    required:
+                    - hostname
+                    - parentRefs
+                    title: Gateway API
+                    type: object
+                  service:
+                    description: |-
+                      Configures the `Service` of WebDAV (`<name>-webdav`).
+
+                      Default port is `80`.
+                    nullable: true
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: Annotations of the `Service`, e.g. for load balancer
+                          settings.
+                        nullable: true
+                        type: object
+                      port:
+                        description: Port of the `Service`.
+                        exclusiveMaximum: false
+                        exclusiveMinimum: false
+                        format: int32
+                        maximum: 65535
+                        minimum: 1
+                        nullable: true
+                        type: integer
+                      type:
+                        description: |-
+                          Type of the `Service`.
+
+                          Default is `ClusterIP`.
+                        externalDocs:
+                          url: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+                        nullable: true
+                        type: string
+                    type: object
+                required:
+                - enabled
+                title: WebDAV
+                type: object
+                x-kubernetes-validations:
+                - message: allowedFrom requires enabled.
+                  rule: self.enabled || !has(self.allowedFrom)
+            required:
+            - targets
+            type: object
+            x-kubernetes-validations:
+            - message: At least one interface (web, sftp, webdav or api) must be enabled.
+              rule: (has(self.web) && self.web.enabled) || (has(self.sftp) && self.sftp.enabled)
+                || (has(self.webdav) && self.webdav.enabled) || (has(self.api) &&
+                self.api.enabled)
+            - message: users[].authorizedKeysSecretRef requires sftp.enabled.
+              rule: '!has(self.users) || !self.users.exists(u, has(u.authorizedKeysSecretRef))
+                || (has(self.sftp) && self.sftp.enabled)'
+          status:
+            properties:
+              api:
+                description: Address of the REST API (DNS name and port of its `Service`
+                  in the cluster, or an external address as for `web`).
+                nullable: true
+                title: API
+                type: string
+              credentialsSecretRef:
+                description: '`Secret` with what the operator generated: the login
+                  of the generated user (keys `username` and `password`, without `users`)
+                  and the API token (key `api-token`, without `api.tokenSecretRef`).'
+                nullable: true
+                properties:
+                  name:
+                    type: string
+                type: object
+              expiresAt:
+                description: Time when the `FileBrowser` expires (`expiresAfterSeconds`).
+                format: date-time
+                nullable: true
+                type: string
+              message:
+                description: Message explaining the current state of the `FileBrowser`.
+                nullable: true
+                type: string
+              phase:
+                description: |-
+                  Current phase of the `FileBrowser`.
+
+                  Values:
+                  - `Pending`: The file manager is starting, or waiting for its node.
+                  - `Preparing`: `Backup` targets are being extracted.
+                  - `Ready`: All targets are ready, the interfaces are serving.
+                  - `Expired`: `expiresAfterSeconds` has passed. The file manager and its resources are deleted.
+                  - `Failed`: A target cannot be served, see `message` and `targets`.
+                enum:
+                - Pending
+                - Preparing
+                - Ready
+                - Expired
+                - Failed
+                type: string
+              sftp:
+                description: Address of the SFTP interface (address and port of its
+                  `Service`, preferring external addresses as for `web`).
+                nullable: true
+                title: SFTP
+                type: string
+              targets:
+                description: State of each target.
+                items:
+                  properties:
+                    message:
+                      description: Message explaining the state of the target.
+                      nullable: true
+                      type: string
+                    name:
+                      description: Name of the target.
+                      type: string
+                    phase:
+                      description: |-
+                        Current phase of the target.
+
+                        Values:
+                        - `Pending`: The file manager is starting.
+                        - `Preparing`: The `Backup` is being extracted.
+                        - `Ready`: The target is served.
+                        - `Failed`: The target cannot be served, see `message`.
+                      enum:
+                      - Pending
+                      - Preparing
+                      - Ready
+                      - Failed
+                      type: string
+                  type: object
+                type: array
+              web:
+                description: 'Address of the web interface: the `httpRoute` hostname,
+                  or else the address and port of its `Service`. External addresses
+                  are preferred: the IP or hostname assigned by a load balancer, then
+                  the first of `externalIPs`, then the DNS name of the `Service` in
+                  the cluster (`<name>.<namespace>.svc.cluster.local`).'
+                nullable: true
+                type: string
+              webdav:
+                description: 'Address of the WebDAV interface: the `httpRoute` hostname,
+                  or else the address and port of its `Service`, preferring external
+                  addresses as for `web`.'
+                nullable: true
+                title: WebDAV
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  labels:
+    operator: kobblestone
   name: networks.kobblestone.io
 spec:
   conversion:
@@ -3063,9 +4131,9 @@ spec:
       name: Message
       priority: 0
       type: string
-    - description: 'IP address of the proxy''s `Service`. External addresses are preferred:
-        the IP assigned by a load balancer, then the first of `externalIPs`, then
-        the cluster IP.'
+    - description: 'Address of the proxy''s `Service`. External addresses are preferred:
+        the IP or hostname assigned by a load balancer, then the first of `externalIPs`,
+        then the DNS name of the `Service` in the cluster (`<name>.<namespace>.svc.cluster.local`).'
       jsonPath: .status.address
       name: Address
       priority: 0
@@ -3572,7 +4640,10 @@ spec:
                     nullable: true
                     type: integer
                   resources:
-                    description: Compute resources of the proxy container.
+                    description: |-
+                      Compute resources of the proxy container.
+
+                      Default is no requests or limits.
                     nullable: true
                     properties:
                       claims:
@@ -4450,6 +5521,33 @@ spec:
                           type: string
                         description: Node selector of the server `Pod`.
                         nullable: true
+                        type: object
+                      proxyResources:
+                        description: |-
+                          Compute resources of the proxy sidecar ([mc-router](https://github.com/itzg/mc-router)) that runs next to the server container: players connect through it, and it reports activity for `autoSleep`. The server container is configured with `spec.resources`.
+
+                          Default is a request of `10m` CPU and `32Mi` memory, and a limit of `128Mi` memory.
+                        externalDocs:
+                          url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources
+                        nullable: true
+                        properties:
+                          claims:
+                            items:
+                              properties:
+                                name:
+                                  type: string
+                                request:
+                                  type: string
+                              type: object
+                            type: array
+                          limits:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          requests:
+                            additionalProperties:
+                              type: string
+                            type: object
                         type: object
                       tolerations:
                         description: Tolerations of the server `Pod`.
@@ -6240,6 +7338,33 @@ spec:
                               description: Node selector of the server `Pod`.
                               nullable: true
                               type: object
+                            proxyResources:
+                              description: |-
+                                Compute resources of the proxy sidecar ([mc-router](https://github.com/itzg/mc-router)) that runs next to the server container: players connect through it, and it reports activity for `autoSleep`. The server container is configured with `spec.resources`.
+
+                                Default is a request of `10m` CPU and `32Mi` memory, and a limit of `128Mi` memory.
+                              externalDocs:
+                                url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources
+                              nullable: true
+                              properties:
+                                claims:
+                                  items:
+                                    properties:
+                                      name:
+                                        type: string
+                                      request:
+                                        type: string
+                                    type: object
+                                  type: array
+                                limits:
+                                  additionalProperties:
+                                    type: string
+                                  type: object
+                                requests:
+                                  additionalProperties:
+                                    type: string
+                                  type: object
+                              type: object
                             tolerations:
                               description: Tolerations of the server `Pod`.
                               items:
@@ -7262,9 +8387,10 @@ spec:
           status:
             properties:
               address:
-                description: 'IP address of the proxy''s `Service`. External addresses
-                  are preferred: the IP assigned by a load balancer, then the first
-                  of `externalIPs`, then the cluster IP.'
+                description: 'Address of the proxy''s `Service`. External addresses
+                  are preferred: the IP or hostname assigned by a load balancer, then
+                  the first of `externalIPs`, then the DNS name of the `Service` in
+                  the cluster (`<name>.<namespace>.svc.cluster.local`).'
                 nullable: true
                 type: string
               message:
@@ -7427,7 +8553,12 @@ spec:
                     nullable: true
                     type: string
                   resources:
-                    description: Compute resources of the restore `Pod`.
+                    description: |-
+                      Compute resources of each container of the restore `Job` (the check for existing data, the download from S3 repos, and the restore). The containers run one after another, so the `Pod` needs no more than this.
+
+                      Default is a request of `10m` CPU and `64Mi` memory, and a limit of `256Mi` memory.
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources
                     nullable: true
                     properties:
                       claims:
@@ -7522,6 +8653,8 @@ spec:
         required:
         - spec
         type: object
+    selectableFields:
+    - jsonPath: .spec.targetRef.name
     served: true
     storage: true
     subresources:
@@ -7545,9 +8678,9 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - description: 'IP address of the `Router`''s `Service`. External addresses are
-        preferred: the IP assigned by a load balancer, then the first of `externalIPs`,
-        then the cluster IP.'
+    - description: 'Address of the `Router`''s `Service`. External addresses are preferred:
+        the IP or hostname assigned by a load balancer, then the first of `externalIPs`,
+        then the DNS name of the `Service` in the cluster (`<name>.<namespace>.svc.cluster.local`).'
       jsonPath: .status.address
       name: Address
       priority: 0
@@ -8052,7 +9185,10 @@ spec:
                 title: Replicas
                 type: integer
               resources:
-                description: Resource requirements for the `Router` pods.
+                description: |-
+                  Resource requirements for the `Router` pods.
+
+                  Default is no requests or limits.
                 externalDocs:
                   url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                 nullable: true
@@ -8135,7 +9271,7 @@ spec:
                 items:
                   properties:
                     backend:
-                      description: Address (IP+port) of the target backend.
+                      description: Address (`host:port`) of the target backend.
                       example: server.example.svc.cluster.local:25565
                       type: string
                     hostname:
@@ -8189,9 +9325,10 @@ spec:
           status:
             properties:
               address:
-                description: 'IP address of the `Router`''s `Service`. External addresses
-                  are preferred: the IP assigned by a load balancer, then the first
-                  of `externalIPs`, then the cluster IP.'
+                description: 'Address of the `Router`''s `Service`. External addresses
+                  are preferred: the IP or hostname assigned by a load balancer, then
+                  the first of `externalIPs`, then the DNS name of the `Service` in
+                  the cluster (`<name>.<namespace>.svc.cluster.local`).'
                 nullable: true
                 type: string
               conditions:
@@ -8375,6 +9512,8 @@ spec:
         required:
         - spec
         type: object
+    selectableFields:
+    - jsonPath: .spec.parentRef.name
     served: true
     storage: true
     subresources:
@@ -8416,9 +9555,9 @@ spec:
       name: Type
       priority: 0
       type: string
-    - description: 'IP address of the `Server`''s `Service`. External addresses are
-        preferred: the IP assigned by a load balancer, then the first of `externalIPs`,
-        then the cluster IP.'
+    - description: 'Address of the `Server`''s `Service`. External addresses are preferred:
+        the IP or hostname assigned by a load balancer, then the first of `externalIPs`,
+        then the DNS name of the `Service` in the cluster (`<name>.<namespace>.svc.cluster.local`).'
       jsonPath: .status.address
       name: Address
       priority: 0
@@ -9285,6 +10424,33 @@ spec:
                     description: Node selector of the server `Pod`.
                     nullable: true
                     type: object
+                  proxyResources:
+                    description: |-
+                      Compute resources of the proxy sidecar ([mc-router](https://github.com/itzg/mc-router)) that runs next to the server container: players connect through it, and it reports activity for `autoSleep`. The server container is configured with `spec.resources`.
+
+                      Default is a request of `10m` CPU and `32Mi` memory, and a limit of `128Mi` memory.
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources
+                    nullable: true
+                    properties:
+                      claims:
+                        items:
+                          properties:
+                            name:
+                              type: string
+                            request:
+                              type: string
+                          type: object
+                        type: array
+                      limits:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      requests:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
                   tolerations:
                     description: Tolerations of the server `Pod`.
                     items:
@@ -10117,7 +11283,10 @@ spec:
                     type: integer
                 type: object
               resources:
-                description: Compute resources of the server container.
+                description: |-
+                  Compute resources of the server container. The memory limit also sizes the JVM heap, see `spec.jvm.memory`. The proxy sidecar in the server `Pod` is configured with `spec.pod.proxyResources`.
+
+                  Default is no requests or limits.
                 nullable: true
                 properties:
                   claims:
@@ -10339,9 +11508,10 @@ spec:
           status:
             properties:
               address:
-                description: 'IP address of the `Server`''s `Service`. External addresses
-                  are preferred: the IP assigned by a load balancer, then the first
-                  of `externalIPs`, then the cluster IP.'
+                description: 'Address of the `Server`''s `Service`. External addresses
+                  are preferred: the IP or hostname assigned by a load balancer, then
+                  the first of `externalIPs`, then the DNS name of the `Service` in
+                  the cluster (`<name>.<namespace>.svc.cluster.local`).'
                 nullable: true
                 type: string
               conditions:
@@ -10494,6 +11664,13 @@ rules:
   - persistentvolumeclaims
   verbs:
   - get
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
   - create
   - update
   - delete
@@ -10511,6 +11688,21 @@ rules:
   - pods
   verbs:
   - list
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - pods
+  verbs:
+  - watch
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - pods
+  verbs:
+  - list
+  - delete
 - apiGroups:
   - ""
   nonResourceURLs: []
@@ -10577,6 +11769,16 @@ rules:
   - get
   - create
   - update
+  - delete
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - secrets
+  verbs:
+  - get
+  - create
+  - update
 - apiGroups:
   - ""
   nonResourceURLs: []
@@ -10611,6 +11813,16 @@ rules:
   - get
   - create
   - update
+  - delete
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - services
+  verbs:
+  - get
+  - create
+  - update
 - apiGroups:
   - ""
   nonResourceURLs: []
@@ -10668,6 +11880,7 @@ rules:
   - get
   - create
   - update
+  - delete
 - apiGroups:
   - apps
   nonResourceURLs: []
@@ -10684,6 +11897,29 @@ rules:
   - get
   - create
   - update
+- apiGroups:
+  - apps
+  nonResourceURLs: []
+  resources:
+  - deployments
+  verbs:
+  - watch
+- apiGroups:
+  - apps
+  nonResourceURLs: []
+  resources:
+  - deployments
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - apps
+  nonResourceURLs: []
+  resources:
+  - statefulsets
+  verbs:
+  - get
 - apiGroups:
   - apps
   nonResourceURLs: []
@@ -10772,6 +12008,26 @@ rules:
   - gateway.networking.k8s.io
   nonResourceURLs: []
   resources:
+  - httproutes
+  verbs:
+  - get
+  - create
+  - update
+  - delete
+- apiGroups:
+  - gateway.networking.k8s.io
+  nonResourceURLs: []
+  resources:
+  - tcproutes
+  verbs:
+  - get
+  - create
+  - update
+  - delete
+- apiGroups:
+  - gateway.networking.k8s.io
+  nonResourceURLs: []
+  resources:
   - tcproutes
   verbs:
   - get
@@ -10802,8 +12058,8 @@ rules:
   - kobblestone.io
   resources:
   - accounts
-  - backuprepos
   - commandgroups
+  - filebrowsers
   - networks
   - routers
   verbs:
@@ -10821,14 +12077,7 @@ rules:
 - apiGroups:
   - kobblestone.io
   resources:
-  - backuprepos/status
-  verbs:
-  - get
-  - update
-  - patch
-- apiGroups:
-  - kobblestone.io
-  resources:
+  - backuprepos
   - backups
   - bots
   - restores
@@ -10837,6 +12086,14 @@ rules:
   - list
   - watch
   - update
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - backuprepos/status
+  verbs:
+  - get
+  - update
+  - patch
 - apiGroups:
   - kobblestone.io
   resources:
@@ -10875,6 +12132,14 @@ rules:
   - kobblestone.io
   resources:
   - commands/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - kobblestone.io
+  resources:
+  - filebrowsers/status
   verbs:
   - get
   - update
@@ -10931,6 +12196,16 @@ rules:
   - get
   - update
   - patch
+- apiGroups:
+  - networking.k8s.io
+  nonResourceURLs: []
+  resources:
+  - networkpolicies
+  verbs:
+  - get
+  - create
+  - update
+  - delete
 - apiGroups:
   - networking.k8s.io
   nonResourceURLs: []
@@ -11017,7 +12292,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        image: ghcr.io/kobblestoneio/kobblestone:0.3.0
+        image: ghcr.io/kobblestoneio/kobblestone:0.4.0-rc1
         imagePullPolicy: Always
         name: operator
         ports:

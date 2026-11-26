@@ -1,9 +1,5 @@
+# Everything: CRDs and operator (kobblestone.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
 resources:
-  - ./generated
-  - service.yaml
-
-patches:
-  - path: ./deployment.yaml
-    target:
-      kind: Deployment
-      name: operator
+  - base

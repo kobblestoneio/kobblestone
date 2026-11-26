@@ -430,6 +430,33 @@ spec:
                           url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
                         nullable: true
                         type: object
+                      resources:
+                        description: |-
+                          Compute resources of the authorization container.
+
+                          Default is a request of `10m` CPU and `64Mi` memory, and a limit of `256Mi` memory.
+                        externalDocs:
+                          url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#resources
+                        nullable: true
+                        properties:
+                          claims:
+                            items:
+                              properties:
+                                name:
+                                  type: string
+                                request:
+                                  type: string
+                              type: object
+                            type: array
+                          limits:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          requests:
+                            additionalProperties:
+                              type: string
+                            type: object
+                        type: object
                       tolerations:
                         description: Tolerations of the authorization `Pod`.
                         externalDocs:

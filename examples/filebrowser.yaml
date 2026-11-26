@@ -1,0 +1,90 @@
+# Web access to the files of a server, for two hours. The login is generated: read it from the Secret named in
+# status.credentialsSecretRef (`kubectl get secret my-server-files-credentials -o jsonpath='{.data.password}' | base64 -d`).
+apiVersion: kobblestone.io/v1alpha1
+kind: FileBrowser
+metadata:
+  name: my-server-files
+spec:
+  targets:
+    - targetRef:
+        kind: Server
+        name: my-server
+  expiresAfterSeconds: 7200
+  web:
+    enabled: true
+    # Optional: expose the web interface through a Gateway. Without it, use the Service (`my-server-files-web`), e.g.
+    # with `kubectl port-forward svc/my-server-files-web 8080:80`.
+    httpRoute:
+      parentRefs:
+        - name: my-gateway
+      hostname: files.example.com
+---
+# File access for a team and a hosting panel: the live server, a backup to recover single files from, and the archives
+# of a backup repo. Users log in with their own passwords (and SSH keys for SFTP), with permissions per path.
+apiVersion: kobblestone.io/v1alpha1
+kind: FileBrowser
+metadata:
+  name: my-server-team-files
+spec:
+  # With several targets, each is a folder: /live, /yesterday, /archives.
+  targets:
+    - name: live
+      targetRef:
+        kind: Server
+        name: my-server
+    - name: yesterday
+      targetRef:
+        kind: Backup
+        name: my-server-nightly
+    - name: archives
+      targetRef:
+        kind: BackupRepo
+        name: my-repo
+  users:
+    - name: admin
+      passwordSecretRef:
+        name: my-server-files-users
+        key: admin-password
+      authorizedKeysSecretRef:
+        name: my-server-files-users
+        key: admin-ssh-keys
+    - name: plugin-dev
+      passwordSecretRef:
+        name: my-server-files-users
+        key: plugin-dev-password
+      permissions:
+        - path: /live/plugins
+          access: ReadWrite
+        - path: /
+          access: ReadOnly
+  web:
+    enabled: true
+    # Only the panel may embed the web interface.
+    embedding:
+      allowedOrigins:
+        - https://panel.example.com
+    httpRoute:
+      parentRefs:
+        - name: my-gateway
+      hostname: files.example.com
+  sftp:
+    enabled: true
+    service:
+      type: LoadBalancer
+  webdav:
+    enabled: true
+    httpRoute:
+      parentRefs:
+        - name: my-gateway
+      hostname: dav.example.com
+  # REST API for the panel: `X-SFTPGO-API-KEY: kobblestone.<token>.<user>`, the token is in the Secret named in
+  # status.credentialsSecretRef (key `api-token`). Only reachable from the panel's namespace.
+  api:
+    enabled: true
+    allowedFrom:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: panel
+  pod:
+    # The extracted backup must fit.
+    scratchSize: 10Gi

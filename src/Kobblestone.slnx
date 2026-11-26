@@ -35,6 +35,8 @@
     <File Path="../dotnet-tools.json" />
     <File Path="../global.json" />
     <File Path="../kobblestone.yaml" />
+    <File Path="../kobblestone-crds.yaml" />
+    <File Path="../kobblestone-operator.yaml" />
     <File Path="../LICENSE" />
     <File Path="../README.md" />
   </Folder>

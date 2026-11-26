@@ -55,10 +55,12 @@ public sealed class AccountSecretController(
                 return;
             }
 
-            var bots = await client.ListAsync<V1Alpha1Bot>(secret.Namespace(), cancellationToken: cancellationToken)
+            var bots = await client.ListAsync<V1Alpha1Bot>(secret.Namespace(),
+                    fieldSelector: SelectableFields.EqualTo(SelectableFields.AccountName, accountName),
+                    cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
-            foreach (var bot in bots.Where(b => b.Spec.Auth?.AccountRef.Name == accountName))
+            foreach (var bot in bots)
             {
                 await queueBot.RequeueAsync(client, bot.Name(), bot.Namespace(), cancellationToken)
                     .ConfigureAwait(false);
