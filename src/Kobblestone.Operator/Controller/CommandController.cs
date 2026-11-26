@@ -28,6 +28,7 @@ namespace Kobblestone.Operator.Controller;
 public sealed class CommandController(
     IKubernetesClient client,
     IRconConnectionFactory rconConnectionFactory,
+    RconTargetLocks rconTargetLocks,
     EventPublisher emitEvent,
     EntityQueue<V1Alpha1CommandGroup> queueCommandGroup) : IEntityController<V1Alpha1Command>
 {
@@ -219,6 +220,13 @@ public sealed class CommandController(
 
         var timeout = TimeSpan.FromMilliseconds(entity.Spec.TimeoutMilliseconds ?? 5000);
 
+        // One command at a time per server: Vanilla servers share one output buffer between all RCON connections (see
+        // RconTargetLocks). A server's Service has the server's name, so both kinds of targets map to the same key.
+        // Waiting for the lock does not count towards the timeout.
+        using var rconLock = await rconTargetLocks
+            .AcquireAsync($"{entity.Namespace()}/{entity.Spec.TargetRef.Name}", cancellationToken)
+            .ConfigureAwait(false);
+
         try
         {
             await using var rcon = await rconConnectionFactory.ConnectAsync(host, port.Value, password,
@@ -244,6 +252,9 @@ public sealed class CommandController(
             entity.Status.Message = ex.GetType().Name;
             entity.Status.Phase = CommandPhase.Failed;
         }
+
+        // The next command may run while this status is written.
+        rconLock.Dispose();
 
         entity.Status.ExecutedAt = DateTime.UtcNow;
 

@@ -18,6 +18,7 @@ builder.Services.AddHttpClient();
 
 builder.Services.TryAddSingleton<IRouterApi, RouterApi>();
 builder.Services.TryAddSingleton<IRconConnectionFactory, RconConnectionFactory>();
+builder.Services.TryAddSingleton<RconTargetLocks>();
 builder.Services.TryAddSingleton<FileBrowserIndex>();
 
 builder

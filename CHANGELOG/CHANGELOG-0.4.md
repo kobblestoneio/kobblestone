@@ -1,4 +1,13 @@
+- [v0.4.1](#v041)
 - [v0.4.0](#v040)
+
+# v0.4.1
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Fix `Command`s sent to the same server at the same time getting each other's output in `status.response`. Vanilla Minecraft, and servers built on its code such as Fabric, collects the output of all RCON connections in one shared buffer, so concurrent commands mix their responses (Paper and its forks are not affected). The operator now sends one command at a time per server, also for `CommandGroup`s and `Command`s targeting the server's `Service`. RCON commands sent by others, e.g. the server image for `autoCommands`, can still overlap with them.
 
 # v0.4.0
 
