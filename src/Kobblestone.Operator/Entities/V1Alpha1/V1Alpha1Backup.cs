@@ -119,6 +119,16 @@ public sealed class
         public int? ActiveDeadlineSeconds { get; set; }
 
         [Description("""
+                     How long a failed backup `Job` and its `Pod` are kept for their logs, in seconds. Successful `Job`s are deleted right away. Also applies to the `Job` deleting the archive (`retainPolicy`): with `RequireDelete` a failed one is retried once it is gone, with `Delete` it is kept this long whatever its result.
+
+                     At least `60`: Kubernetes applies it to successful `Job`s as well, which have to exist until the operator recorded their result.
+
+                     Default is `600` (10 minutes).
+                     """)]
+        [RangeMinimum(60)]
+        public int? TtlSecondsAfterFailure { get; set; }
+
+        [Description("""
                      Custom image for online backups of running servers.
 
                      Default is `itzg/mc-backup`.

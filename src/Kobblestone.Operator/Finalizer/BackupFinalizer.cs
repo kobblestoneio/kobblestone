@@ -53,6 +53,8 @@ public sealed class BackupFinalizer(IKubernetesClient client, EventPublisher emi
 
             if (completeCondition is not null)
             {
+                await client.DeleteJobWithPodsAsync(job, cancellationToken).ConfigureAwait(false);
+
                 return ReconciliationResult<V1Alpha1Backup>.Success(entity);
             }
 
@@ -61,8 +63,9 @@ public sealed class BackupFinalizer(IKubernetesClient client, EventPublisher emi
                 await emitEvent(entity,
                     "CleanupFailed",
                     $"Cleanup Job {jobName} failed. The Backup is not removed because of retainPolicy " +
-                    $"RequireDelete. The cleanup is retried once the Job is removed, " +
-                    $"{JobDefaults.TtlSecondsAfterFinished / 60} minutes after it failed; delete it to retry now.",
+                    $"RequireDelete. The cleanup is retried once the Job is removed " +
+                    $"({entity.Spec.Job?.TtlSecondsAfterFailure ?? JobDefaults.TtlSecondsAfterFailure} seconds after " +
+                    $"it failed, `job.ttlSecondsAfterFailure`); delete it to retry now.",
                     EventType.Warning, cancellationToken).ConfigureAwait(false);
 
                 // Requeue so that the cleanup is retried once the failed Job has been deleted.
@@ -169,7 +172,7 @@ public sealed class BackupFinalizer(IKubernetesClient client, EventPublisher emi
             Metadata = new V1ObjectMeta { Name = jobName, NamespaceProperty = entity.Namespace() },
             Spec = new V1JobSpec
             {
-                TtlSecondsAfterFinished = JobDefaults.TtlSecondsAfterFinished,
+                TtlSecondsAfterFinished = entity.Spec.Job?.TtlSecondsAfterFailure ?? JobDefaults.TtlSecondsAfterFailure,
                 Template = new V1PodTemplateSpec
                 {
                     // Lets FileBrowsers find the Pods using the repo's volume (see VolumeUsers).

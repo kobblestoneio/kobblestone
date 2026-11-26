@@ -291,7 +291,7 @@ public sealed class RestoreController(IKubernetesClient client, EventPublisher e
             {
                 BackoffLimit = 0,
                 ActiveDeadlineSeconds = entity.Spec.Job?.ActiveDeadlineSeconds,
-                TtlSecondsAfterFinished = JobDefaults.TtlSecondsAfterFinished,
+                TtlSecondsAfterFinished = entity.Spec.Job?.TtlSecondsAfterFailure ?? JobDefaults.TtlSecondsAfterFailure,
                 Template = new V1PodTemplateSpec
                 {
                     // Pods do not inherit the labels of their Job. They let FileBrowsers find the Pods using the
@@ -516,7 +516,7 @@ public sealed class RestoreController(IKubernetesClient client, EventPublisher e
     /// <summary>
     /// Derives the status of a started restore from its Job.
     /// </summary>
-    private Task<ReconciliationResult<V1Alpha1Restore>> SyncStatusWithJobAsync(
+    private async Task<ReconciliationResult<V1Alpha1Restore>> SyncStatusWithJobAsync(
         V1Alpha1Restore entity,
         V1Job job,
         CancellationToken cancellationToken
@@ -531,44 +531,54 @@ public sealed class RestoreController(IKubernetesClient client, EventPublisher e
 
         if (conditions?.Any(c => c.Type is "Complete" && c.Status is "True") is true)
         {
-            return UpdateStatusAsync(
-                entity,
-                RestorePhase.Completed,
-                "Completed successfully",
-                cancellationToken,
-                before
-            );
+            var result = await UpdateStatusAsync(
+                    entity,
+                    RestorePhase.Completed,
+                    "Completed successfully",
+                    cancellationToken,
+                    before
+                )
+                .ConfigureAwait(false);
+
+            // The result is recorded and the restore is never reconciled again: its Pod would only keep the volumes
+            // in use. Failed Jobs stay for their logs until their TTL.
+            await client.DeleteJobWithPodsAsync(job, cancellationToken).ConfigureAwait(false);
+
+            return result;
         }
 
         if (conditions?.FirstOrDefault(c => c.Type is "Failed" && c.Status is "True") is { } failed)
         {
-            return UpdateStatusAsync(
-                entity,
-                RestorePhase.Failed,
-                failed.Message ?? "Job failed",
-                cancellationToken,
-                before
-            );
+            return await UpdateStatusAsync(
+                    entity,
+                    RestorePhase.Failed,
+                    failed.Message ?? "Job failed",
+                    cancellationToken,
+                    before
+                )
+                .ConfigureAwait(false);
         }
 
         if (job.Status?.Ready > 0)
         {
-            return UpdateStatusAsync(
-                entity,
-                RestorePhase.Running,
-                "Actively running",
-                cancellationToken,
-                before
-            );
+            return await UpdateStatusAsync(
+                    entity,
+                    RestorePhase.Running,
+                    "Actively running",
+                    cancellationToken,
+                    before
+                )
+                .ConfigureAwait(false);
         }
 
-        return UpdateStatusAsync(
-            entity,
-            RestorePhase.Pending,
-            "Waiting for the restore Pod to start",
-            cancellationToken,
-            before
-        );
+        return await UpdateStatusAsync(
+                entity,
+                RestorePhase.Pending,
+                "Waiting for the restore Pod to start",
+                cancellationToken,
+                before
+            )
+            .ConfigureAwait(false);
     }
 
     /// <summary>

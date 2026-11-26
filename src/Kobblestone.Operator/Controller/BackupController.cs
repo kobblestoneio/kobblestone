@@ -192,8 +192,8 @@ public sealed class BackupController(
     /// <summary>
     /// Derives the status of a started backup from its Job.
     /// </summary>
-    private Task<ReconciliationResult<V1Alpha1Backup>> SyncStatusWithJobAsync(V1Alpha1Backup entity, V1Job job,
-        CancellationToken cancellationToken)
+    private async Task<ReconciliationResult<V1Alpha1Backup>> SyncStatusWithJobAsync(V1Alpha1Backup entity,
+        V1Job job, CancellationToken cancellationToken)
     {
         var before = EntityQueueExtensions.Snapshot(entity.Status);
 
@@ -206,25 +206,33 @@ public sealed class BackupController(
 
         if (conditions?.Any(c => c.Type is "Complete" && c.Status is "True") is true)
         {
-            return UpdateStatusAsync(entity, BackupPhase.Completed, "Completed successfully.",
-                BackupConditions.Completed, cancellationToken, before);
+            var result = await UpdateStatusAsync(entity, BackupPhase.Completed, "Completed successfully.",
+                BackupConditions.Completed, cancellationToken, before).ConfigureAwait(false);
+
+            // The result is recorded and the backup is never reconciled again: its Pod would only keep the volumes in
+            // use. Failed Jobs stay for their logs until their TTL.
+            await client.DeleteJobWithPodsAsync(job, cancellationToken).ConfigureAwait(false);
+
+            return result;
         }
 
         if (conditions?.FirstOrDefault(c => c.Type is "Failed" && c.Status is "True") is { } failed)
         {
-            return UpdateStatusAsync(entity, BackupPhase.Failed, failed.Message ?? "Job failed.",
-                BackupConditions.Failed.WithReason(failed.Reason ?? "JobFailed"), cancellationToken, before);
+            return await UpdateStatusAsync(entity, BackupPhase.Failed, failed.Message ?? "Job failed.",
+                    BackupConditions.Failed.WithReason(failed.Reason ?? "JobFailed"), cancellationToken, before)
+                .ConfigureAwait(false);
         }
 
         if (job.Status?.Ready > 0)
         {
-            return UpdateStatusAsync(entity, BackupPhase.Running, "Actively running.",
-                BackupConditions.Progressing.WithReason("Running").WithMessage("Backup is running."),
-                cancellationToken, before);
+            return await UpdateStatusAsync(entity, BackupPhase.Running, "Actively running.",
+                    BackupConditions.Progressing.WithReason("Running").WithMessage("Backup is running."),
+                    cancellationToken, before)
+                .ConfigureAwait(false);
         }
 
-        return UpdateStatusAsync(entity, BackupPhase.Pending, "Waiting for the backup Pod to start.", null,
-            cancellationToken, before);
+        return await UpdateStatusAsync(entity, BackupPhase.Pending, "Waiting for the backup Pod to start.", null,
+            cancellationToken, before).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -293,7 +301,7 @@ public sealed class BackupController(
 
         job.Spec.BackoffLimit = 0;
         job.Spec.ActiveDeadlineSeconds = backup.Spec.Job?.ActiveDeadlineSeconds;
-        job.Spec.TtlSecondsAfterFinished = JobDefaults.TtlSecondsAfterFinished;
+        job.Spec.TtlSecondsAfterFinished = backup.Spec.Job?.TtlSecondsAfterFailure ?? JobDefaults.TtlSecondsAfterFailure;
 
         // Set on every container rather than the Pod: pod-level resources need Kubernetes 1.34. The containers run one
         // after another (backup, then upload), so the Pod does not need more than one of them.

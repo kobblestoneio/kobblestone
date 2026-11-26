@@ -101,6 +101,16 @@ public sealed class V1Alpha1Restore
         public int? ActiveDeadlineSeconds { get; set; }
 
         [Description("""
+                     How long a failed restore `Job` and its `Pod` are kept for their logs, in seconds. Successful `Job`s are deleted right away.
+
+                     At least `60`: Kubernetes applies it to successful `Job`s as well, which have to exist until the operator recorded their result.
+
+                     Default is `600` (10 minutes).
+                     """)]
+        [RangeMinimum(60)]
+        public int? TtlSecondsAfterFailure { get; set; }
+
+        [Description("""
                      Custom image for the restore containers. It must provide `sh`, `ls`, `tar` and `mv`.
 
                      Default is `ubuntu`.

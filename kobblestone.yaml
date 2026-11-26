@@ -490,6 +490,18 @@ spec:
                         nullable: true
                         type: array
                     type: object
+                  ttlSecondsAfterFailure:
+                    description: |-
+                      How long a failed authorization `Job` and its `Pod` are kept for their logs, in seconds. Successful `Job`s are deleted right away. The retry after a failure does not depend on it (see `status.lastFailure`).
+
+                      At least `60`: Kubernetes applies it to successful `Job`s as well, which have to exist until the operator recorded their result.
+
+                      Default is `3600` (1 hour).
+                    exclusiveMinimum: false
+                    format: int32
+                    minimum: 60
+                    nullable: true
+                    type: integer
                 type: object
               inactive:
                 description: |-
@@ -567,6 +579,25 @@ spec:
                 required:
                 - userCode
                 - verificationUri
+                type: object
+              lastFailure:
+                description: The last failed authorization. A new one is started 10
+                  minutes after it, if the `Account` still needs one. Cleared once
+                  the `Account` is authorized.
+                nullable: true
+                properties:
+                  at:
+                    description: When the authorization failed.
+                    format: date-time
+                    type: string
+                  job:
+                    description: Name of the failed authorization `Job`.
+                    nullable: true
+                    type: string
+                  message:
+                    description: Why the authorization failed, if known.
+                    nullable: true
+                    type: string
                 type: object
               message:
                 description: Message explaining the current state of the `Account`.
@@ -905,6 +936,18 @@ spec:
                           type: string
                       type: object
                     type: array
+                  ttlSecondsAfterFailure:
+                    description: |-
+                      How long a failed backup `Job` and its `Pod` are kept for their logs, in seconds. Successful `Job`s are deleted right away. Also applies to the `Job` deleting the archive (`retainPolicy`): with `RequireDelete` a failed one is retried once it is gone, with `Delete` it is kept this long whatever its result.
+
+                      At least `60`: Kubernetes applies it to successful `Job`s as well, which have to exist until the operator recorded their result.
+
+                      Default is `600` (10 minutes).
+                    exclusiveMinimum: false
+                    format: int32
+                    minimum: 60
+                    nullable: true
+                    type: integer
                 title: Job
                 type: object
               repoRef:
@@ -8608,6 +8651,18 @@ spec:
                       type: object
                     nullable: true
                     type: array
+                  ttlSecondsAfterFailure:
+                    description: |-
+                      How long a failed restore `Job` and its `Pod` are kept for their logs, in seconds. Successful `Job`s are deleted right away.
+
+                      At least `60`: Kubernetes applies it to successful `Job`s as well, which have to exist until the operator recorded their result.
+
+                      Default is `600` (10 minutes).
+                    exclusiveMinimum: false
+                    format: int32
+                    minimum: 60
+                    nullable: true
+                    type: integer
                 type: object
               path:
                 description: |-
@@ -12327,7 +12382,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        image: ghcr.io/kobblestoneio/kobblestone:0.4.0-rc2
+        image: ghcr.io/kobblestoneio/kobblestone:0.4.0-rc3
         imagePullPolicy: Always
         name: operator
         ports:

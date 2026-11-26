@@ -43,7 +43,8 @@ public sealed class RouteController(
                            || entity.Status.Hostname != entity.Spec.Hostname
                            || entity.Status.Backend != backend;
 
-        if (!syncRequired)
+        // Without `Registered`, a previous reconcile did not register the route on all router Pods yet.
+        if (!syncRequired && entity.Status.Conditions.Any(c => c is { Type: RegisteredCondition, Status: "True" }))
         {
             return ReconciliationResult<V1Alpha1Route>.Success(entity);
         }
@@ -83,7 +84,7 @@ public sealed class RouteController(
             foreach (var pod in prevRouterPods)
             {
                 // Skip Pods that have not been synced at all yet
-                if (!pod.Status.Conditions.Any(c => c.Type is "RoutesSynced" && c.Status is "True"))
+                if (!IsSynced(pod))
                 {
                     continue;
                 }
@@ -106,6 +107,22 @@ public sealed class RouteController(
             return ReconciliationResult<V1Alpha1Route>.Success(entity, TimeSpan.FromSeconds(10));
         }
 
+        var previousHostname = entity.Status.Hostname;
+
+        // The status is written before the router Pods are listed: a router Pod syncing its routes (from the routes'
+        // status, see RouterPodController) either reads this status, or it is listed below. Pods that have not synced
+        // yet may have read the routes before, so the route is registered on them once they have synced.
+        if (syncRequired)
+        {
+            entity.Status.RouterName = router.Name();
+            entity.Status.Hostname = entity.Spec.Hostname;
+            entity.Status.Backend = backend;
+
+            SetRegistered(entity, false, "Registering", "Registering the route on the router Pods.");
+
+            entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
+        }
+
         var routerPods = await client.ListAsync<V1Pod>(entity.Namespace(),
                 new EqualsLabelSelector("kobblestone.io/router", routerName), cancellationToken: cancellationToken)
             .ConfigureAwait(false);
@@ -119,9 +136,7 @@ public sealed class RouteController(
                 continue;
             }
 
-            // Pods that have not synced their routes yet register the routes from their status. This route has no
-            // status yet, so a Pod syncing right now may miss it: retry until all Pods are synced.
-            if (routerPod.Status.Conditions?.Any(c => c.Type is "RoutesSynced" && c.Status is "True") is not true)
+            if (!IsSynced(routerPod))
             {
                 unsyncedPods = true;
 
@@ -131,7 +146,7 @@ public sealed class RouteController(
             var routerApiBaseUrl = $"http://{routerPod.Status.PodIP}:8080";
 
             // Delete obsolete route
-            if (entity.Status.Hostname is { } previousHostname && previousHostname != entity.Spec.Hostname)
+            if (previousHostname is not null && previousHostname != entity.Spec.Hostname)
             {
                 await routerApi.DeleteRouteAsync(routerApiBaseUrl, previousHostname, cancellationToken)
                     .ConfigureAwait(false);
@@ -146,13 +161,38 @@ public sealed class RouteController(
             return ReconciliationResult<V1Alpha1Route>.Success(entity, TimeSpan.FromSeconds(5));
         }
 
-        entity.Status.RouterName = router.Name();
-        entity.Status.Hostname = entity.Spec.Hostname;
-        entity.Status.Backend = backend;
+        SetRegistered(entity, true, "Registered", "The route is registered on all router Pods.");
 
         entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
 
         return ReconciliationResult<V1Alpha1Route>.Success(entity);
+    }
+
+    private const string RegisteredCondition = "Registered";
+
+    private static bool IsSynced(V1Pod routerPod) =>
+        routerPod.Status.Conditions?.Any(c => c is { Type: "RoutesSynced", Status: "True" }) is true;
+
+    private static void SetRegistered(V1Alpha1Route route, bool registered, string reason, string message)
+    {
+        var status = registered ? "True" : "False";
+        var condition = route.Status.Conditions.FirstOrDefault(c => c.Type == RegisteredCondition);
+
+        if (condition is null)
+        {
+            condition = new V1Condition { Type = RegisteredCondition };
+            route.Status.Conditions.Add(condition);
+        }
+
+        if (condition.Status != status)
+        {
+            condition.LastTransitionTime = DateTime.UtcNow;
+        }
+
+        condition.Status = status;
+        condition.Reason = reason;
+        condition.Message = message;
+        condition.ObservedGeneration = route.Generation();
     }
 
     private async Task<string?> ResolveBackendAsync(V1Alpha1Route route, CancellationToken cancellationToken)

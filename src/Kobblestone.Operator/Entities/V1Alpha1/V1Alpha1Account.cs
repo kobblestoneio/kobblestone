@@ -93,6 +93,11 @@ public sealed class
         public V1Alpha1AccountProfile? Profile { get; set; }
 
         [Description("""
+                     The last failed authorization. A new one is started 10 minutes after it, if the `Account` still needs one. Cleared once the `Account` is authorized.
+                     """)]
+        public V1Alpha1AccountStatusFailure? LastFailure { get; set; }
+
+        [Description("""
                      Conditions of the `Account`.
                      """)]
         public IList<V1Condition> Conditions { get; set; } = [];
@@ -111,6 +116,34 @@ public sealed class
                      Configures the managed `Pod` resource that is spawned for authorization flows.
                      """)]
         public V1Alpha1AccountAuthorizationPod? Pod { get; set; }
+
+        [Description("""
+                     How long a failed authorization `Job` and its `Pod` are kept for their logs, in seconds. Successful `Job`s are deleted right away. The retry after a failure does not depend on it (see `status.lastFailure`).
+
+                     At least `60`: Kubernetes applies it to successful `Job`s as well, which have to exist until the operator recorded their result.
+
+                     Default is `3600` (1 hour).
+                     """)]
+        [RangeMinimum(60)]
+        public int? TtlSecondsAfterFailure { get; set; }
+    }
+
+    public record V1Alpha1AccountStatusFailure
+    {
+        [Description("""
+                     When the authorization failed.
+                     """)]
+        public DateTime At { get; set; }
+
+        [Description("""
+                     Why the authorization failed, if known.
+                     """)]
+        public string? Message { get; set; }
+
+        [Description("""
+                     Name of the failed authorization `Job`.
+                     """)]
+        public string? Job { get; set; }
     }
 
     public record V1Alpha1AccountAuthorizationPod

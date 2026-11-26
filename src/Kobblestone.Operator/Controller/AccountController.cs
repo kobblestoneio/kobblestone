@@ -64,9 +64,10 @@ public sealed class AccountController(IKubernetesClient client) : IEntityControl
     private static readonly TimeSpan RetryAfterFailure = TimeSpan.FromMinutes(10);
 
     /// <summary>
-    /// Finished auth `Job`s are kept this long, so their result and termination message can be inspected.
+    /// Default of `authorization.ttlSecondsAfterFailure`: failed auth `Job`s are kept this long, so their logs can be
+    /// inspected. Successful ones are deleted as soon as their result is recorded.
     /// </summary>
-    private const int JobTtlSecondsAfterFinished = 3600;
+    private const int DefaultTtlSecondsAfterFailure = 3600;
 
     public async Task<ReconciliationResult<V1Alpha1Account>> ReconcileAsync(
         V1Alpha1Account entity,
@@ -89,10 +90,10 @@ public sealed class AccountController(IKubernetesClient client) : IEntityControl
         var session = SessionSecret.Read(sessionSecret.Data);
         var deviceFlow = CredentialsSecret.ReadDeviceFlow(credentialsSecret.Data);
 
+        var before = EntityQueueExtensions.Snapshot(entity.Status);
+
         var job = await EnsureJobAsync(entity, session, now, cancellationToken)
             .ConfigureAwait(false);
-
-        var before = EntityQueueExtensions.Snapshot(entity.Status);
 
         await DeriveStatusAsync(entity, session, deviceFlow, job, now, cancellationToken)
             .ConfigureAwait(false);
@@ -161,6 +162,8 @@ public sealed class AccountController(IKubernetesClient client) : IEntityControl
 
         if (validSession is not null)
         {
+            status.LastFailure = null;
+
             SetPhase(
                 account,
                 V1Alpha1Account.AccountPhase.Authorized,
@@ -192,15 +195,15 @@ public sealed class AccountController(IKubernetesClient client) : IEntityControl
             return;
         }
 
-        if (job is not null && job.IsFailed())
+        if (!jobActive && status.LastFailure is { } failure)
         {
-            var reason = await GetTerminationMessageAsync(job, cancellationToken)
-                .ConfigureAwait(false);
+            var retryAt = AsUtc(failure.At) + RetryAfterFailure;
 
             SetPhase(
                 account,
                 V1Alpha1Account.AccountPhase.Unauthorized,
-                $"Authorization failed: {reason ?? "see the logs of Job " + job.Name()}",
+                $"Authorization failed: {failure.Message ?? "see the logs of Job " + failure.Job}. "
+                    + $"Retrying at {retryAt:yyyy-MM-dd HH:mm:ss}Z.",
                 "AuthorizationFailed"
             );
 
@@ -234,6 +237,9 @@ public sealed class AccountController(IKubernetesClient client) : IEntityControl
                 : AccountConditions.AwaitingAuthorization.False().WithReason(reason)
         );
     }
+
+    private static DateTime AsUtc(DateTime time) =>
+        time.Kind is DateTimeKind.Unspecified ? DateTime.SpecifyKind(time, DateTimeKind.Utc) : time.ToUniversalTime();
 
     private async Task<string?> GetTerminationMessageAsync(
         V1Job job,
@@ -275,6 +281,31 @@ public sealed class AccountController(IKubernetesClient client) : IEntityControl
         var job = jobs.Where(j => j.GetOwnerReference(account) is not null)
             .MaxBy(j => j.Metadata.CreationTimestamp);
 
+        // Failures are recorded in the status, so the retry and the message do not depend on the failed Job, which is
+        // deleted after `authorization.ttlSecondsAfterFailure`.
+        if (job is not null && job.IsFailed() && account.Status.LastFailure?.Job != job.Name())
+        {
+            account.Status.LastFailure = new V1Alpha1Account.V1Alpha1AccountStatusFailure
+            {
+                At = job.Status?.Conditions?.FirstOrDefault(c => c.Type is "Failed")?.LastTransitionTime
+                    ?? job.Metadata.CreationTimestamp
+                    ?? now.UtcDateTime,
+                Message = await GetTerminationMessageAsync(job, cancellationToken)
+                    .ConfigureAwait(false),
+                Job = job.Name(),
+            };
+        }
+
+        // The session is in its Secret: the Job and its Pod are not needed anymore.
+        if (job is not null && job.IsSucceeded())
+        {
+            account.Status.LastFailure = null;
+
+            await client.DeleteJobWithPodsAsync(job, cancellationToken).ConfigureAwait(false);
+
+            job = null;
+        }
+
         if (account.Spec.Inactive is true)
         {
             if (job is not null && !job.IsFinished())
@@ -295,13 +326,10 @@ public sealed class AccountController(IKubernetesClient client) : IEntityControl
 
         var startNewJob = job switch
         {
-            null => true,
-            _ when !job.IsFinished() => false,
-            // A successful Job without a usable session (e.g. the session was refreshed a while ago): refresh again.
-            _ when !job.IsFailed() => true,
+            not null when !job.IsFinished() => false,
             // Do not hammer the services (or the user with new device codes) after a failure.
-            _ => job.Metadata.CreationTimestamp is { } created
-                && now - created >= RetryAfterFailure,
+            _ => account.Status.LastFailure is not { } failure
+                || now.UtcDateTime - AsUtc(failure.At) >= RetryAfterFailure,
         };
 
         if (!startNewJob)
@@ -318,7 +346,7 @@ public sealed class AccountController(IKubernetesClient client) : IEntityControl
 
     private static void ApplyJob(V1Job job, V1Alpha1Account account, DateTimeOffset now)
     {
-        // Unique names: finished Jobs are kept for a while (TTL) to inspect their result.
+        // Unique names: failed Jobs are kept for a while (TTL) to inspect their logs.
         job.Metadata.Name = $"{account.Name()}-auth-{now.ToUnixTimeSeconds()}";
         job.Metadata.NamespaceProperty = account.Namespace();
         job.Metadata.Labels = new Dictionary<string, string>
@@ -327,7 +355,8 @@ public sealed class AccountController(IKubernetesClient client) : IEntityControl
         };
 
         job.Spec.BackoffLimit = 0;
-        job.Spec.TtlSecondsAfterFinished = JobTtlSecondsAfterFinished;
+        job.Spec.TtlSecondsAfterFinished =
+            account.Spec.Authorization?.TtlSecondsAfterFailure ?? DefaultTtlSecondsAfterFailure;
         job.Spec.Template = new V1PodTemplateSpec
         {
             Metadata = new V1ObjectMeta
