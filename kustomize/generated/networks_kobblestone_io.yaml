@@ -42,15 +42,6 @@ spec:
       name: Version
       priority: 0
       type: string
-    - description: |-
-        Number of proxy replicas.
-
-        Default is `1`.
-      format: int32
-      jsonPath: .spec.proxy.replicas
-      name: Replicas
-      priority: 0
-      type: integer
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -142,7 +133,7 @@ spec:
                     type: object
                   offline:
                     description: |-
-                      If set to `true`, the proxy runs in offline mode (`online-mode = false`): player accounts are not verified.
+                      If set to `true`, the proxy runs in offline mode (`online-mode = false`): player accounts are not verified. Managed servers then get `enforce-secure-profile=false` (unless set in `properties`), since players without verified accounts have no profile keys and could not chat otherwise.
 
                       Default is `false`.
                     nullable: true

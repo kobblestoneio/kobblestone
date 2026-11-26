@@ -291,6 +291,7 @@ public sealed class RestoreController(IKubernetesClient client, EventPublisher e
             {
                 BackoffLimit = 0,
                 ActiveDeadlineSeconds = entity.Spec.Job?.ActiveDeadlineSeconds,
+                TtlSecondsAfterFinished = JobDefaults.TtlSecondsAfterFinished,
                 Template = new V1PodTemplateSpec
                 {
                     // Pods do not inherit the labels of their Job. They let FileBrowsers find the Pods using the
@@ -308,6 +309,7 @@ public sealed class RestoreController(IKubernetesClient client, EventPublisher e
                     {
                         RestartPolicy = "Never",
                         Tolerations = entity.Spec.Job?.Tolerations,
+                        NodeSelector = entity.Spec.Job?.NodeSelector,
                         Volumes =
                         [
                             new V1Volume

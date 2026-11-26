@@ -30,11 +30,15 @@ public sealed class RouterController(IKubernetesClient client) : IEntityControll
 
         await EnsureTcpRouteAsync(entity, cancellationToken).ConfigureAwait(false);
 
-        await EnsureDeploymentAsync(entity, cancellationToken).ConfigureAwait(false);
+        var deploy = await EnsureDeploymentAsync(entity, cancellationToken).ConfigureAwait(false);
 
         // The RouterServiceController queues this router whenever the Service changes, e.g. when its load balancer
         // got an external IP.
         entity.Status.Address = service.GetAddress();
+
+        // The RouterDeploymentController queues this router whenever the Deployment changes.
+        entity.Status.Replicas = deploy.Status?.Replicas ?? 0;
+        entity.Status.ReadyReplicas = deploy.Status?.ReadyReplicas ?? 0;
 
         entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
 
@@ -168,6 +172,7 @@ public sealed class RouterController(IKubernetesClient client) : IEntityControll
     {
         deploy.Metadata.Name = router.Name();
         deploy.Metadata.NamespaceProperty = router.Namespace();
+        deploy.Metadata.Labels = PodLabels(router);
 
         deploy.Spec.Replicas = router.Spec.Replicas;
         deploy.Spec.Selector = new V1LabelSelector { MatchLabels = PodLabels(router) };
@@ -222,6 +227,13 @@ public sealed class RouterController(IKubernetesClient client) : IEntityControll
                             },
                             new V1ContainerPort { Name = "api", ContainerPort = 8080 }
                         ],
+                        // The operator registers routes once the API accepts connections (RouterPodController).
+                        ReadinessProbe = new V1Probe
+                        {
+                            TcpSocket = new V1TCPSocketAction { Port = "api" },
+                            PeriodSeconds = 2,
+                            FailureThreshold = 3
+                        },
                         Resources = router.Spec.Resources,
                         Env =
                         [

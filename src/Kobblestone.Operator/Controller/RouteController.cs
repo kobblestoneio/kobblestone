@@ -110,11 +110,21 @@ public sealed class RouteController(
                 new EqualsLabelSelector("kobblestone.io/router", routerName), cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
+        var unsyncedPods = false;
+
         foreach (var routerPod in routerPods)
         {
-            // Skip Pods that have not been synced at all yet
-            if (!routerPod.Status.Conditions.Any(c => c.Type is "RoutesSynced" && c.Status is "True"))
+            if (routerPod.Metadata.DeletionTimestamp is not null || routerPod.Status.Phase is "Succeeded" or "Failed")
             {
+                continue;
+            }
+
+            // Pods that have not synced their routes yet register the routes from their status. This route has no
+            // status yet, so a Pod syncing right now may miss it: retry until all Pods are synced.
+            if (routerPod.Status.Conditions?.Any(c => c.Type is "RoutesSynced" && c.Status is "True") is not true)
+            {
+                unsyncedPods = true;
+
                 continue;
             }
 
@@ -129,6 +139,11 @@ public sealed class RouteController(
 
             await routerApi.RegisterRouteAsync(routerApiBaseUrl, entity.Spec.Hostname, backend, cancellationToken)
                 .ConfigureAwait(false);
+        }
+
+        if (unsyncedPods)
+        {
+            return ReconciliationResult<V1Alpha1Route>.Success(entity, TimeSpan.FromSeconds(5));
         }
 
         entity.Status.RouterName = router.Name();

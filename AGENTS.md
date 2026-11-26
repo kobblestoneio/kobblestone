@@ -51,8 +51,8 @@ Shell: Windows; Git Bash and PowerShell are available. `gh` may not be installed
 
 ## Changelog
 
-`CHANGELOG/CHANGELOG-<minor>.md`, Kubernetes-style sections: `Upgrade Notes`, `Feature`, `Other (Cleanup or Flake)`,
-`Dependency`. The files use CRLF line endings.
+`CHANGELOG/CHANGELOG-<minor>.md`, Kubernetes-style sections: `Upgrade Notes`, `Feature`, `Bug or Regression`,
+`Other (Cleanup or Flake)`, `Dependency`. The files use CRLF line endings.
 
 Every minor release (`vX.Y.0`, starting with v0.4.0) begins with a `## Summary` section, directly after the release
 heading and before `## Upgrade Notes`: one intro sentence and a few bold-led bullets with the highlights for users (new

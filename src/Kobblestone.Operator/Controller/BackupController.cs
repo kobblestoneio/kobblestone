@@ -293,6 +293,7 @@ public sealed class BackupController(
 
         job.Spec.BackoffLimit = 0;
         job.Spec.ActiveDeadlineSeconds = backup.Spec.Job?.ActiveDeadlineSeconds;
+        job.Spec.TtlSecondsAfterFinished = JobDefaults.TtlSecondsAfterFinished;
 
         // Set on every container rather than the Pod: pod-level resources need Kubernetes 1.34. The containers run one
         // after another (backup, then upload), so the Pod does not need more than one of them.
@@ -419,6 +420,8 @@ public sealed class BackupController(
         {
             RestartPolicy = "Never",
             Tolerations = backup.Spec.Job?.Tolerations,
+            // A running server's volume is only available on its node (see the affinity below).
+            NodeSelector = online ? null : backup.Spec.Job?.NodeSelector,
             Volumes =
             [
                 new V1Volume

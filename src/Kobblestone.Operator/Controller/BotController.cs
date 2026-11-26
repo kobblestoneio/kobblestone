@@ -1,5 +1,6 @@
 ﻿using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 
 using k8s.Models;
 
@@ -94,7 +95,7 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
             return await UpdateStatusAsync(entity, before, null, cancellationToken).ConfigureAwait(false);
         }
 
-        var (address, port) = await ResolveTargetAsync(entity, cancellationToken).ConfigureAwait(false);
+        var (address, port, version) = await ResolveTargetAsync(entity, cancellationToken).ConfigureAwait(false);
 
         if (address is null)
         {
@@ -123,7 +124,7 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
             ? entity.Spec.OfflineUsername ?? entity.Name()
             : session.Session?.Username;
 
-        var configMap = await EnsureConfigMapAsync(entity, address, port, cancellationToken).ConfigureAwait(false);
+        var configMap = await EnsureConfigMapAsync(entity, address, port, version, cancellationToken).ConfigureAwait(false);
 
         await EnsureDeploymentAsync(entity, configMap, session.ResourceVersion, waitingForAccount, cancellationToken)
             .ConfigureAwait(false);
@@ -268,11 +269,12 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
         SetPhase(bot, V1Alpha1Bot.BotPhase.Pending, "Bot is connecting.", "Connecting");
     }
 
-    private async Task<(string? Address, int Port)> ResolveTargetAsync(V1Alpha1Bot bot,
+    private async Task<(string? Address, int Port, string? Version)> ResolveTargetAsync(V1Alpha1Bot bot,
         CancellationToken cancellationToken)
     {
         string? address = null;
         int? port = null;
+        string? version = null;
 
         if (bot.Spec.Target.TargetRef is { } targetRef)
         {
@@ -288,6 +290,7 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
                     {
                         address = ServiceExtensions.ServiceDnsName(server.Name(), server.Namespace());
                         port = server.Spec.Service?.Port;
+                        version = server.Spec.Version;
                     }
 
                     break;
@@ -299,6 +302,7 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
                     {
                         address = ServiceExtensions.ServiceDnsName(network.Name(), network.Namespace());
                         port = network.Spec.Service?.Port;
+                        version = network.Spec.ServerTemplate?.Version;
                     }
 
                     break;
@@ -306,8 +310,12 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
         }
 
         return (bot.Spec.Target.Host ?? address,
-            bot.Spec.Target.Port ?? port ?? MinecraftConstants.DefaultMinecraftPort);
+            bot.Spec.Target.Port ?? port ?? MinecraftConstants.DefaultMinecraftPort,
+            // Only release versions (e.g. `26.2`), not `LATEST`, snapshots or another host than the target's.
+            bot.Spec.Target.Host is null && version is not null && ReleaseVersion.IsMatch(version) ? version : null);
     }
+
+    private static readonly Regex ReleaseVersion = new(@"^\d+(\.\d+)+$");
 
     private async Task<(MinecraftSession? Session, string? ResourceVersion)> GetSessionAsync(V1Alpha1Bot bot,
         CancellationToken cancellationToken)
@@ -333,7 +341,7 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
             : (session, secret.ResourceVersion());
     }
 
-    private async Task<V1ConfigMap> EnsureConfigMapAsync(V1Alpha1Bot bot, string address, int port,
+    private async Task<V1ConfigMap> EnsureConfigMapAsync(V1Alpha1Bot bot, string address, int port, string? version,
         CancellationToken cancellationToken)
     {
         var cm = await client.GetAsync<V1ConfigMap>(bot.Name(), bot.Namespace(), cancellationToken)
@@ -343,17 +351,17 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
         {
             cm = new V1ConfigMap { Metadata = new V1ObjectMeta() };
 
-            ApplyConfigMap(cm, bot, address, port);
+            ApplyConfigMap(cm, bot, address, port, version);
 
             return await client.CreateAsync(cm, cancellationToken).ConfigureAwait(false);
         }
 
-        ApplyConfigMap(cm, bot, address, port);
+        ApplyConfigMap(cm, bot, address, port, version);
 
         return await client.UpdateAsync(cm, cancellationToken).ConfigureAwait(false);
     }
 
-    private static void ApplyConfigMap(V1ConfigMap cm, V1Alpha1Bot bot, string address, int port)
+    private static void ApplyConfigMap(V1ConfigMap cm, V1Alpha1Bot bot, string address, int port, string? version)
     {
         cm.Metadata.Name = bot.Name();
         cm.Metadata.NamespaceProperty = bot.Namespace();
@@ -361,7 +369,7 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
 
         cm.Data = new Dictionary<string, string>
         {
-            ["00-base.toml"] = Serialize(BaseLayer()),
+            ["00-base.toml"] = Serialize(BaseLayer(version)),
             ["30-scheduler.toml"] = Serialize(SchedulerLayer(bot)),
             ["99-managed.toml"] = Serialize(ManagedLayer(bot, address, port))
         };
@@ -385,7 +393,12 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
     /// <summary>
     /// Defaults for running MCC unattended in a container. Users may override them.
     /// </summary>
-    private static TomlTable BaseLayer() => new()
+    /// <param name="version">
+    /// Minecraft version of the target, if known. MCC's detection (<c>auto</c>) uses the protocol of the server list
+    /// ping, and a Velocity proxy answers with the newest version it supports, which may be newer than the backend
+    /// servers and the bundled MCC.
+    /// </param>
+    private static TomlTable BaseLayer(string? version) => new()
     {
         // TODO(verify): Setting names against the bundled MCC version.
         ["Main"] = new TomlTable
@@ -393,7 +406,7 @@ public sealed class BotController(IKubernetesClient client, EventPublisher emitE
             ["Advanced"] = new TomlTable
             {
                 ["Language"] = "en_us",
-                ["MinecraftVersion"] = "auto",
+                ["MinecraftVersion"] = version ?? "auto",
                 // Exit instead of prompting on failures; Kubernetes restarts the container.
                 ["ExitOnFailure"] = true
             }

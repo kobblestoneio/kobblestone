@@ -111,5 +111,11 @@ public sealed class V1Alpha1Restore
                      Tolerations of the restore `Pod`.
                      """)]
         public IList<V1Toleration>? Tolerations { get; set; }
+
+        [Description("""
+                     Node selector of the restore `Pod`.
+                     """)]
+        [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
+        public IDictionary<string, string>? NodeSelector { get; set; }
     }
 }

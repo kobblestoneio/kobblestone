@@ -11,6 +11,7 @@ using Kobblestone.Operator.Finalizer;
 using Kobblestone.Operator.Utils;
 
 using KubeOps.Abstractions.Entities;
+using KubeOps.Abstractions.Events;
 using KubeOps.Abstractions.Rbac;
 using KubeOps.Abstractions.Reconciliation;
 using KubeOps.Abstractions.Reconciliation.Controller;
@@ -67,7 +68,8 @@ namespace Kobblestone.Operator.Controller;
 public sealed class ServerController(
     IKubernetesClient client,
     EntityFinalizerAttacher<ServerFinalizer, V1Alpha1Server> finalizer,
-    EntityQueue<V1Alpha1Network> queueNetwork
+    EntityQueue<V1Alpha1Network> queueNetwork,
+    EventPublisher emitEvent
 ) : IEntityController<V1Alpha1Server>
 {
     public async Task<ReconciliationResult<V1Alpha1Server>> ReconcileAsync(
@@ -120,7 +122,17 @@ public sealed class ServerController(
 
         await EnsurePvcAsync(entity, cancellationToken).ConfigureAwait(false);
 
-        await EnsureSecretAsync(entity, cancellationToken).ConfigureAwait(false);
+        if (await EnsureSecretAsync(entity, cancellationToken).ConfigureAwait(false) is { } secretConflict)
+        {
+            await emitEvent(entity, "SecretConflict", secretConflict, EventType.Warning, cancellationToken)
+                .ConfigureAwait(false);
+
+            entity.WithCondition(ServerConditions.Error.WithReason("SecretConflict").WithMessage(secretConflict));
+
+            entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
+
+            return ReconciliationResult<V1Alpha1Server>.Success(entity, TimeSpan.FromSeconds(30));
+        }
 
         await EnsureForwardingConfigMapAsync(entity, cancellationToken).ConfigureAwait(false);
 
@@ -394,7 +406,11 @@ public sealed class ServerController(
         }
     }
 
-    private async Task<V1Secret> EnsureSecretAsync(
+    /// <summary>
+    /// Creates the server's `Secret` (RCON password). Returns an error if a `Secret` with its name exists that the
+    /// server does not own: it is neither used nor changed.
+    /// </summary>
+    private async Task<string?> EnsureSecretAsync(
         V1Alpha1Server server,
         CancellationToken cancellationToken
     )
@@ -437,10 +453,16 @@ public sealed class ServerController(
                 );
             }
 
-            secret = await client.CreateAsync(secret, cancellationToken).ConfigureAwait(false);
+            secret.WithOwnerReference(server);
+
+            await client.CreateAsync(secret, cancellationToken).ConfigureAwait(false);
+
+            return null;
         }
 
-        return secret;
+        return secret.IsOwnedBy(server)
+            ? null
+            : $"Secret {secret.Name()} already exists and does not belong to this Server. Delete or rename it, so the Server can create its own.";
     }
 
     private async Task<V1PersistentVolumeClaim?> EnsurePvcAsync(

@@ -83,6 +83,14 @@ spec:
                       Default is `ubuntu`.
                     nullable: true
                     type: string
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    description: Node selector of the restore `Pod`.
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                    nullable: true
+                    type: object
                   resources:
                     description: |-
                       Compute resources of each container of the restore `Job` (the check for existing data, the download from S3 repos, and the restore). The containers run one after another, so the `Pod` needs no more than this.

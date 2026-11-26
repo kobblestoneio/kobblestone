@@ -230,7 +230,7 @@ public sealed class CommandController(
             entity.Status.FailureReason = null;
             entity.Status.Phase = CommandPhase.Completed;
             entity.Status.Response = response;
-            entity.Status.Message = "Executed sucessfully";
+            entity.Status.Message = "Executed successfully";
         }
         catch (TimeoutException)
         {

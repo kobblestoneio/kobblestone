@@ -840,6 +840,17 @@ spec:
                       url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#Container
                     nullable: true
                     type: string
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Node selector of the backup `Pod` and of the `Pod` deleting the archive (`retainPolicy`).
+
+                      Only applies while the server is not running: the backup of a running server always runs on the server's node, where its volume is attached.
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                    nullable: true
+                    type: object
                   resources:
                     description: |-
                       Compute resources of each container of the backup `Job` (the backup, and the upload to S3 repos), and of the `Job` that deletes the archive (`retainPolicy`). The containers run one after another, so the `Pod` needs no more than this.
@@ -4139,15 +4150,6 @@ spec:
       name: Version
       priority: 0
       type: string
-    - description: |-
-        Number of proxy replicas.
-
-        Default is `1`.
-      format: int32
-      jsonPath: .spec.proxy.replicas
-      name: Replicas
-      priority: 0
-      type: integer
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -4240,7 +4242,7 @@ spec:
                     type: object
                   offline:
                     description: |-
-                      If set to `true`, the proxy runs in offline mode (`online-mode = false`): player accounts are not verified.
+                      If set to `true`, the proxy runs in offline mode (`online-mode = false`): player accounts are not verified. Managed servers then get `enforce-secure-profile=false` (unless set in `properties`), since players without verified accounts have no profile keys and could not chat otherwise.
 
                       Default is `false`.
                     nullable: true
@@ -8545,6 +8547,14 @@ spec:
                       Default is `ubuntu`.
                     nullable: true
                     type: string
+                  nodeSelector:
+                    additionalProperties:
+                      type: string
+                    description: Node selector of the restore `Pod`.
+                    externalDocs:
+                      url: https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec
+                    nullable: true
+                    type: object
                   resources:
                     description: |-
                       Compute resources of each container of the restore `Job` (the check for existing data, the download from S3 repos, and the restore). The containers run one after another, so the `Pod` needs no more than this.
@@ -8678,10 +8688,17 @@ spec:
       name: Address
       priority: 0
       type: string
-    - description: Number of replicas this `Router` should run.
+    - description: Current number of router replicas (`Pod`s).
       format: int32
-      jsonPath: .spec.replicas
+      jsonPath: .status.replicas
       name: Replicas
+      priority: 0
+      type: integer
+    - description: Number of router replicas that are ready, i.e. accept players with
+        all routes registered.
+      format: int32
+      jsonPath: .status.readyReplicas
+      name: Ready
       priority: 0
       type: integer
     name: v1alpha1
@@ -9345,6 +9362,17 @@ spec:
                       type: string
                   type: object
                 type: array
+              readyReplicas:
+                description: Number of router replicas that are ready, i.e. accept
+                  players with all routes registered.
+                format: int32
+                nullable: true
+                type: integer
+              replicas:
+                description: Current number of router replicas (`Pod`s).
+                format: int32
+                nullable: true
+                type: integer
               tcpRoute:
                 description: Whether a managed `TCPRoute` exists.
                 nullable: true

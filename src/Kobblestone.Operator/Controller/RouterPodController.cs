@@ -63,6 +63,12 @@ public class RouterPodController(
             return ReconciliationResult<V1Pod>.Success(entity);
         }
 
+        // mc-router's API is only reachable once the containers are ready. The Pod is reconciled again when they are.
+        if (containersReadyCondition is not { Status: "True" } || string.IsNullOrEmpty(entity.Status.PodIP))
+        {
+            return ReconciliationResult<V1Pod>.Success(entity);
+        }
+
         var routerApiBaseUrl = $"http://{entity.Status.PodIP}:8080";
 
         var routes = await client.ListAsync<V1Alpha1Route>(entity.Namespace(),

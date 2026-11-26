@@ -87,7 +87,17 @@ public sealed class NetworkController(
 
         await EnsureTcpRouteAsync(entity, cancellationToken).ConfigureAwait(false);
 
-        await EnsureSecretAsync(entity, cancellationToken).ConfigureAwait(false);
+        if (await EnsureSecretAsync(entity, cancellationToken).ConfigureAwait(false) is { } secretConflict)
+        {
+            await emitEvent(entity, "SecretConflict", secretConflict, EventType.Warning, cancellationToken)
+                .ConfigureAwait(false);
+
+            entity.Status.Message = secretConflict;
+
+            entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
+
+            return ReconciliationResult<V1Alpha1Network>.Success(entity, TimeSpan.FromSeconds(30));
+        }
 
         await EnsureRouteAsync(entity, cancellationToken).ConfigureAwait(false);
 
@@ -414,8 +424,18 @@ public sealed class NetworkController(
             SecretRef = new V1SecretKeyRef { Name = network.Name(), Key = ForwardingSecretKey }
         };
 
+        // Players of an offline proxy have no profile keys, so a server enforcing secure profiles rejects all their
+        // chat messages. Servers behind an online proxy keep the default.
+        if (network.Spec.Proxy?.Offline is true && spec.Properties?.ContainsKey(EnforceSecureProfile) is not true)
+        {
+            spec.Properties ??= new Dictionary<string, string?>();
+            spec.Properties[EnforceSecureProfile] = "false";
+        }
+
         return (spec, null);
     }
+
+    private const string EnforceSecureProfile = "enforce-secure-profile";
 
     /// <summary>
     /// Compares specs semantically. The API server returns maps (e.g. `properties`) with sorted keys, so the
@@ -542,7 +562,11 @@ public sealed class NetworkController(
         return await client.UpdateAsync(cm, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<V1Secret> EnsureSecretAsync(V1Alpha1Network network, CancellationToken cancellationToken)
+    /// <summary>
+    /// Creates the network's `Secret` (forwarding secret). Returns an error if a `Secret` with its name exists that
+    /// the network does not own: it is neither used nor changed.
+    /// </summary>
+    private async Task<string?> EnsureSecretAsync(V1Alpha1Network network, CancellationToken cancellationToken)
     {
         var secret = await client.GetAsync<V1Secret>(network.Name(), network.Namespace(), cancellationToken)
             .ConfigureAwait(false);
@@ -573,10 +597,16 @@ public sealed class NetworkController(
                 secret.StringData[ForwardingSecretKey] = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24));
             }
 
-            secret = await client.CreateAsync(secret, cancellationToken).ConfigureAwait(false);
+            secret.WithOwnerReference(network);
+
+            await client.CreateAsync(secret, cancellationToken).ConfigureAwait(false);
+
+            return null;
         }
 
-        return secret;
+        return secret.IsOwnedBy(network)
+            ? null
+            : $"Secret {secret.Name()} already exists and does not belong to this Network. Delete or rename it, so the Network can create its own.";
     }
 
     private async Task<V1Deployment> EnsureDeploymentAsync(V1Alpha1Network network, string configHash,

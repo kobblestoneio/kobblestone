@@ -131,5 +131,13 @@ public sealed class
                      """)]
         [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
         public IList<V1Toleration> Tolerations { get; set; } = new List<V1Toleration>();
+
+        [Description("""
+                     Node selector of the backup `Pod` and of the `Pod` deleting the archive (`retainPolicy`).
+
+                     Only applies while the server is not running: the backup of a running server always runs on the server's node, where its volume is attached.
+                     """)]
+        [ExternalDocs("https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/#PodSpec")]
+        public IDictionary<string, string>? NodeSelector { get; set; }
     }
 }

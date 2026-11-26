@@ -323,6 +323,13 @@ rules:
   - apps
   nonResourceURLs: []
   resources:
+  - deployments
+  verbs:
+  - watch
+- apiGroups:
+  - apps
+  nonResourceURLs: []
+  resources:
   - statefulsets
   verbs:
   - get

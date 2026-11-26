@@ -77,6 +77,11 @@ builder
         NetworkLabelSelector<V1Deployment>
     >()
     .AddControllerWithLabelSelector<
+        RouterDeploymentController,
+        V1Deployment,
+        RouterLabelSelector<V1Deployment>
+    >()
+    .AddControllerWithLabelSelector<
         FileBrowserDeploymentController,
         V1Deployment,
         FileBrowserLabelSelector<V1Deployment>

@@ -19,10 +19,16 @@ spec:
       name: Address
       priority: 0
       type: string
-    - description: Number of replicas this `Router` should run.
+    - description: Current number of router replicas (`Pod`s).
       format: int32
-      jsonPath: .spec.replicas
+      jsonPath: .status.replicas
       name: Replicas
+      priority: 0
+      type: integer
+    - description: Number of router replicas that are ready, i.e. accept players with all routes registered.
+      format: int32
+      jsonPath: .status.readyReplicas
+      name: Ready
       priority: 0
       type: integer
     name: v1alpha1
@@ -677,6 +683,16 @@ spec:
                       type: string
                   type: object
                 type: array
+              readyReplicas:
+                description: Number of router replicas that are ready, i.e. accept players with all routes registered.
+                format: int32
+                nullable: true
+                type: integer
+              replicas:
+                description: Current number of router replicas (`Pod`s).
+                format: int32
+                nullable: true
+                type: integer
               tcpRoute:
                 description: Whether a managed `TCPRoute` exists.
                 nullable: true

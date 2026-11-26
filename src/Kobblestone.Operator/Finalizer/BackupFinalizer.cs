@@ -61,7 +61,8 @@ public sealed class BackupFinalizer(IKubernetesClient client, EventPublisher emi
                 await emitEvent(entity,
                     "CleanupFailed",
                     $"Cleanup Job {jobName} failed. The Backup is not removed because of retainPolicy " +
-                    $"RequireDelete. Delete the Job to retry the cleanup.",
+                    $"RequireDelete. The cleanup is retried once the Job is removed, " +
+                    $"{JobDefaults.TtlSecondsAfterFinished / 60} minutes after it failed; delete it to retry now.",
                     EventType.Warning, cancellationToken).ConfigureAwait(false);
 
                 // Requeue so that the cleanup is retried once the failed Job has been deleted.
@@ -168,6 +169,7 @@ public sealed class BackupFinalizer(IKubernetesClient client, EventPublisher emi
             Metadata = new V1ObjectMeta { Name = jobName, NamespaceProperty = entity.Namespace() },
             Spec = new V1JobSpec
             {
+                TtlSecondsAfterFinished = JobDefaults.TtlSecondsAfterFinished,
                 Template = new V1PodTemplateSpec
                 {
                     // Lets FileBrowsers find the Pods using the repo's volume (see VolumeUsers).
@@ -178,6 +180,7 @@ public sealed class BackupFinalizer(IKubernetesClient client, EventPublisher emi
                     Spec = new V1PodSpec
                     {
                         RestartPolicy = "Never",
+                        NodeSelector = entity.Spec.Job?.NodeSelector,
                         Volumes = repo.Spec.Type is BackupRepoType.PersistentVolumeClaim
                             ?
                             [

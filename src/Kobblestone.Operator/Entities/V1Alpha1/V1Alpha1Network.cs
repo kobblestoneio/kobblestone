@@ -153,11 +153,10 @@ public sealed class
 
                      Default is `1`.
                      """)]
-        [AdditionalPrinterColumn(name: "Replicas")]
         public int? Replicas { get; set; }
 
         [Description("""
-                     If set to `true`, the proxy runs in offline mode (`online-mode = false`): player accounts are not verified.
+                     If set to `true`, the proxy runs in offline mode (`online-mode = false`): player accounts are not verified. Managed servers then get `enforce-secure-profile=false` (unless set in `properties`), since players without verified accounts have no profile keys and could not chat otherwise.
 
                      Default is `false`.
                      """)]

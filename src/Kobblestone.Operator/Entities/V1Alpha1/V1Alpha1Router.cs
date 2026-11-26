@@ -24,7 +24,6 @@ public sealed class
         [Description("""
                      Number of replicas this `Router` should run.
                      """)]
-        [AdditionalPrinterColumn(name: "Replicas")]
         public int? Replicas { get; set; }
 
         [Title("Hostnames")]
@@ -90,6 +89,18 @@ public sealed class
                      """)]
         [AdditionalPrinterColumn(name: "Address")]
         public string? Address { get; set; }
+
+        [Description("""
+                     Current number of router replicas (`Pod`s).
+                     """)]
+        [AdditionalPrinterColumn(name: "Replicas")]
+        public int? Replicas { get; set; }
+
+        [Description("""
+                     Number of router replicas that are ready, i.e. accept players with all routes registered.
+                     """)]
+        [AdditionalPrinterColumn(name: "Ready")]
+        public int? ReadyReplicas { get; set; }
 
         [Description("""
                      Conditions of the `Router`.
