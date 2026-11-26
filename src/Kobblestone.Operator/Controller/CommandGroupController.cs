@@ -4,6 +4,7 @@ using Kobblestone.Operator.Entities.V1Alpha1;
 using Kobblestone.Operator.Utils;
 
 using KubeOps.Abstractions.Entities;
+using KubeOps.Abstractions.Events;
 using KubeOps.Abstractions.Rbac;
 using KubeOps.Abstractions.Reconciliation;
 using KubeOps.Abstractions.Reconciliation.Controller;
@@ -17,8 +18,9 @@ namespace Kobblestone.Operator.Controller;
 /// The CommandController queues the group whenever one of its commands was executed.
 /// </summary>
 [EntityRbac(typeof(V1Alpha1CommandGroup), Verbs = RbacVerb.Watch | RbacVerb.Get | RbacVerb.Update)]
-[EntityRbac(typeof(V1Alpha1Command), Verbs = RbacVerb.List | RbacVerb.Create)]
-public sealed class CommandGroupController(IKubernetesClient client) : IEntityController<V1Alpha1CommandGroup>
+[EntityRbac(typeof(V1Alpha1Command), Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Create)]
+public sealed class CommandGroupController(IKubernetesClient client, EventPublisher emitEvent)
+    : IEntityController<V1Alpha1CommandGroup>
 {
     public const string CommandGroupLabel = "kobblestone.io/command-group";
 
@@ -100,9 +102,29 @@ public sealed class CommandGroupController(IKubernetesClient client) : IEntityCo
             }
         }
 
+        TimeSpan? requeueAfter = null;
+
         if (nextIndex is { } i)
         {
-            await client.CreateAsync(BuildCommand(entity, i), cancellationToken).ConfigureAwait(false);
+            var next = BuildCommand(entity, i);
+
+            // A `Command` with the name exists, but is not one of this group's (it would have been found above): it is
+            // neither used nor changed. This includes the leftovers of a deleted group with the same name.
+            if (await client.GetAsync<V1Alpha1Command>(next.Name(), next.Namespace(), cancellationToken)
+                    .ConfigureAwait(false) is { } existing)
+            {
+                message = $"Command {existing.Name()} already exists and does not belong to this group. Delete or " +
+                          $"rename it, so the group can run its command {i + 1}.";
+
+                await emitEvent(entity, "CommandNameConflict", message, EventType.Warning, cancellationToken)
+                    .ConfigureAwait(false);
+
+                requeueAfter = TimeSpan.FromSeconds(30);
+            }
+            else
+            {
+                await client.CreateAsync(next, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         var before = EntityQueueExtensions.Snapshot(entity.Status);
@@ -116,7 +138,7 @@ public sealed class CommandGroupController(IKubernetesClient client) : IEntityCo
             entity = await client.UpdateStatusAsync(entity, cancellationToken).ConfigureAwait(false);
         }
 
-        return ReconciliationResult<V1Alpha1CommandGroup>.Success(entity);
+        return ReconciliationResult<V1Alpha1CommandGroup>.Success(entity, requeueAfter);
     }
 
     public Task<ReconciliationResult<V1Alpha1CommandGroup>> DeletedAsync(V1Alpha1CommandGroup entity,

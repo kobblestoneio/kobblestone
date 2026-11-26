@@ -8,6 +8,7 @@
 ### Bug or Regression
 
 - Fix `Command`s sent to the same server at the same time getting each other's output in `status.response`. Vanilla Minecraft, and servers built on its code such as Fabric, collects the output of all RCON connections in one shared buffer, so concurrent commands mix their responses (Paper and its forks are not affected). The operator now sends one command at a time per server, also for `CommandGroup`s and `Command`s targeting the server's `Service`. RCON commands sent by others, e.g. the server image for `autoCommands`, can still overlap with them.
+- Fix `CommandGroup`s getting stuck silently when a `Command` with the name of one of their commands (`<group>-<index>`) already exists, e.g. left behind by a deleted group with the same name. The group does not use or change it, and now reports `CommandNameConflict` as a warning event and in `status.message` until it is deleted or renamed.
 
 # v0.4.0
 

@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-
 namespace Kobblestone.Operator.Services;
 
 /// <summary>
@@ -14,22 +12,75 @@ namespace Kobblestone.Operator.Services;
 /// </remarks>
 public sealed class RconTargetLocks
 {
-    // One semaphore per target that ever received a command; they are small, so they are kept.
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
+    // Guards _locks and the reference counts. A target's entry exists only while a command holds or waits for its lock.
+    private readonly Lock _sync = new();
+
+    private readonly Dictionary<string, Entry> _locks = new();
 
     /// <summary>
     /// Waits until no other command runs against <paramref name="target"/>. Dispose the result to let the next one run.
     /// </summary>
     public async Task<IDisposable> AcquireAsync(string target, CancellationToken cancellationToken)
     {
-        var semaphore = _locks.GetOrAdd(target, _ => new SemaphoreSlim(1, 1));
+        Entry entry;
 
-        await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        lock (_sync)
+        {
+            if (!_locks.TryGetValue(target, out entry!))
+            {
+                entry = new Entry();
+                _locks[target] = entry;
+            }
 
-        return new Releaser(semaphore);
+            entry.References++;
+        }
+
+        try
+        {
+            await entry.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Cancelled while waiting: the lock was never taken, only the reference is given back.
+            Unreference(target, entry);
+
+            throw;
+        }
+
+        return new Releaser(this, target, entry);
     }
 
-    private sealed class Releaser(SemaphoreSlim semaphore) : IDisposable
+    private void Release(string target, Entry entry)
+    {
+        entry.Semaphore.Release();
+
+        Unreference(target, entry);
+    }
+
+    private void Unreference(string target, Entry entry)
+    {
+        lock (_sync)
+        {
+            if (--entry.References > 0)
+            {
+                return;
+            }
+
+            // Nobody holds or waits for the lock anymore, and new callers create a new entry under _sync.
+            _locks.Remove(target);
+            entry.Semaphore.Dispose();
+        }
+    }
+
+    private sealed class Entry
+    {
+        public SemaphoreSlim Semaphore { get; } = new(1, 1);
+
+        /// <summary>Commands holding or waiting for the lock. Only changed under <see cref="_sync"/>.</summary>
+        public int References { get; set; }
+    }
+
+    private sealed class Releaser(RconTargetLocks owner, string target, Entry entry) : IDisposable
     {
         private int _released;
 
@@ -37,7 +88,7 @@ public sealed class RconTargetLocks
         {
             if (Interlocked.Exchange(ref _released, 1) == 0)
             {
-                semaphore.Release();
+                owner.Release(target, entry);
             }
         }
     }
