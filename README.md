@@ -121,7 +121,7 @@ See the [installation docs](https://kobblestone.io/docs/installation) for the ch
 Each release also comes with a plain manifest that contains everything in one file:
 
 ```sh
-kubectl apply -f https://get.kobblestone.io/v0.4.0/kobblestone.yaml
+kubectl apply -f https://get.kobblestone.io/v0.4.1/kobblestone.yaml
 ```
 
 It installs the same components into the namespace `kobblestone-system`. To upgrade, apply the manifest of the new
@@ -131,8 +131,8 @@ Since 0.4.0, the CRDs and the operator are also available as separate manifests,
 (deleting a CRD deletes all resources of its kind):
 
 ```sh
-kubectl apply --server-side -f https://get.kobblestone.io/v0.4.0/kobblestone-crds.yaml
-kubectl apply -f https://get.kobblestone.io/v0.4.0/kobblestone-operator.yaml
+kubectl apply --server-side -f https://get.kobblestone.io/v0.4.1/kobblestone-crds.yaml
+kubectl apply -f https://get.kobblestone.io/v0.4.1/kobblestone-operator.yaml
 ```
 
 Together they contain exactly what `kobblestone.yaml` contains.
